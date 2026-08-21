@@ -20,6 +20,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Reminders',
+          headerTitle: 'Anon',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'checklist', android: 'checklist', web: 'checklist' }}

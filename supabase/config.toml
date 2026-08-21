@@ -241,7 +241,7 @@ port = 587
 user = "resend"
 pass = "env(RESEND_SMTP_PASS)"
 admin_email = "onboarding@resend.dev"
-sender_name = "Reminders"
+sender_name = "Anon"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
