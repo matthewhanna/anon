@@ -1,14 +1,18 @@
-import { StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
-import EditScreenInfo from '@/components/EditScreenInfo';
 import { Text, View } from '@/components/Themed';
+import { useAuth } from '@/lib/auth-context';
 
-export default function TabTwoScreen() {
+export default function SettingsScreen() {
+  const { session, signOut } = useAuth();
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Tab Two</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/two.tsx" />
+      <Text style={styles.label}>Signed in as</Text>
+      <Text style={styles.email}>{session?.user.email}</Text>
+      <Pressable style={styles.button} onPress={signOut}>
+        <Text style={styles.buttonText}>Sign out</Text>
+      </Pressable>
     </View>
   );
 }
@@ -18,14 +22,25 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 24,
+    gap: 8,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  label: {
+    opacity: 0.6,
   },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
+  email: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 24,
+  },
+  button: {
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#e53e3e',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });
