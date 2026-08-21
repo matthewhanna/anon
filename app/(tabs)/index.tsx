@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, TextInput } from 'react-native';
 
@@ -5,15 +6,21 @@ import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
+import { parseScheduleInput } from '@/lib/parse-schedule';
+import { formatDueAt, formatRecurrence, nextOccurrence } from '@/lib/recurrence';
 import {
+  completeReminder,
   createReminder,
   deleteReminder,
   listReminders,
-  setReminderCompleted,
+  setReminderDueAt,
+  uncompleteReminder,
+  updateReminderSchedule,
   type Reminder,
 } from '@/lib/reminders';
 
 export default function RemindersScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const tintColor = Colors[colorScheme].tint;
   const [locations, setLocations] = useState<Location[]>([]);
@@ -24,6 +31,8 @@ export default function RemindersScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [scheduleTexts, setScheduleTexts] = useState<Record<string, string>>({});
+  const [scheduleErrors, setScheduleErrors] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     ensureDefaultLocations().then(({ data, error }) => {
@@ -81,15 +90,78 @@ export default function RemindersScreen() {
   }
 
   async function handleToggle(reminder: Reminder) {
+    const isRecurring = Boolean(reminder.recurrence_freq && reminder.due_at);
     const nextCompleted = !reminder.completed_at;
+
+    if (isRecurring) {
+      const next = nextOccurrence(new Date(reminder.due_at as string), reminder.recurrence_freq!, reminder.recurrence_weekday);
+      setReminders((current) =>
+        current.map((item) => (item.id === reminder.id ? { ...item, due_at: next.toISOString() } : item))
+      );
+    } else {
+      setReminders((current) =>
+        current.map((item) =>
+          item.id === reminder.id
+            ? { ...item, completed_at: nextCompleted ? new Date().toISOString() : null }
+            : item
+        )
+      );
+    }
+
+    const { error } = isRecurring || nextCompleted
+      ? await completeReminder(reminder)
+      : await uncompleteReminder(reminder.id);
+
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId);
+    }
+  }
+
+  async function handleClearDueAt(reminder: Reminder) {
     setReminders((current) =>
       current.map((item) =>
         item.id === reminder.id
-          ? { ...item, completed_at: nextCompleted ? new Date().toISOString() : null }
+          ? { ...item, due_at: null, recurrence_freq: null, recurrence_weekday: null }
           : item
       )
     );
-    const { error } = await setReminderCompleted(reminder.id, nextCompleted);
+    const { error } = await setReminderDueAt(reminder.id, null);
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId);
+    }
+  }
+
+  async function handleQuickSchedule(reminder: Reminder) {
+    const text = scheduleTexts[reminder.id] ?? '';
+    const parsed = parseScheduleInput(text);
+    if (!parsed) {
+      setScheduleErrors((current) => ({
+        ...current,
+        [reminder.id]: 'Couldn\'t understand that — try "8/25/26", "next Tue", or "every Tue at 11a".',
+      }));
+      return;
+    }
+    setScheduleErrors((current) => ({ ...current, [reminder.id]: null }));
+    setScheduleTexts((current) => ({ ...current, [reminder.id]: '' }));
+    setReminders((current) =>
+      current.map((item) =>
+        item.id === reminder.id
+          ? {
+              ...item,
+              due_at: parsed.dueAt.toISOString(),
+              recurrence_freq: parsed.recurrenceFreq,
+              recurrence_weekday: parsed.recurrenceWeekday,
+            }
+          : item
+      )
+    );
+    const { error } = await updateReminderSchedule(reminder.id, {
+      due_at: parsed.dueAt.toISOString(),
+      recurrence_freq: parsed.recurrenceFreq,
+      recurrence_weekday: parsed.recurrenceWeekday,
+    });
     if (error) {
       setErrorMessage(error.message);
       if (activeLocationId) load(activeLocationId);
@@ -162,25 +234,53 @@ export default function RemindersScreen() {
           contentContainerStyle={reminders.length === 0 && styles.emptyContainer}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />}
           ListEmptyComponent={<Text style={styles.emptyText}>No reminders yet.</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <Pressable style={styles.rowMain} onPress={() => handleToggle(item)}>
-                <View
-                  style={[
-                    styles.checkbox,
-                    { borderColor: tintColor },
-                    item.completed_at && { backgroundColor: tintColor },
-                  ]}
-                />
-                <Text style={[styles.rowTitle, item.completed_at && styles.rowTitleCompleted]}>
-                  {item.title}
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => handleDelete(item)} hitSlop={8}>
-                <Text style={styles.deleteText}>Delete</Text>
-              </Pressable>
-            </View>
-          )}
+          renderItem={({ item }) => {
+            const dueLabel = formatDueAt(item.due_at);
+            const recurrenceLabel = formatRecurrence(item.recurrence_freq, item.recurrence_weekday);
+            const scheduleError = scheduleErrors[item.id];
+            return (
+              <View style={styles.row}>
+                <Pressable onPress={() => handleToggle(item)} hitSlop={8} style={styles.checkboxTouch}>
+                  <View
+                    style={[
+                      styles.checkbox,
+                      { borderColor: tintColor },
+                      item.completed_at && { backgroundColor: tintColor },
+                    ]}
+                  />
+                </Pressable>
+                <View style={styles.rowMain}>
+                  <Pressable onPress={() => router.push(`/reminder/${item.id}`)}>
+                    <Text style={[styles.rowTitle, item.completed_at && styles.rowTitleCompleted]}>
+                      {item.title}
+                    </Text>
+                  </Pressable>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.rowMeta}>{dueLabel ?? 'No due date'}</Text>
+                    <TextInput
+                      style={[styles.smallQuickInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+                      value={scheduleTexts[item.id] ?? ''}
+                      onChangeText={(text) => setScheduleTexts((current) => ({ ...current, [item.id]: text }))}
+                      placeholder="next Tue, every Tue 11a…"
+                      placeholderTextColor="#888"
+                      onSubmitEditing={() => handleQuickSchedule(item)}
+                      returnKeyType="done"
+                    />
+                    {item.due_at && (
+                      <Pressable onPress={() => handleClearDueAt(item)} hitSlop={4}>
+                        <Text style={styles.link}>Clear</Text>
+                      </Pressable>
+                    )}
+                    {recurrenceLabel ? <Text style={styles.rowMeta}>{recurrenceLabel}</Text> : null}
+                  </View>
+                  {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
+                </View>
+                <Pressable onPress={() => handleDelete(item)} hitSlop={8}>
+                  <Text style={styles.deleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            );
+          }}
         />
       )}
     </View>
@@ -248,17 +348,18 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#8884',
   },
+  checkboxTouch: {
+    paddingTop: 2,
+  },
   rowMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     flex: 1,
+    gap: 2,
   },
   checkbox: {
     width: 22,
@@ -273,6 +374,29 @@ const styles = StyleSheet.create({
   rowTitleCompleted: {
     textDecorationLine: 'line-through',
     opacity: 0.5,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  rowMeta: {
+    fontSize: 13,
+    opacity: 0.6,
+  },
+  smallQuickInput: {
+    width: 130,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 13,
+  },
+  link: {
+    fontSize: 13,
+    textDecorationLine: 'underline',
+    opacity: 0.7,
   },
   deleteText: {
     color: '#e53e3e',

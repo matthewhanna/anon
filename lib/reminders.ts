@@ -1,3 +1,4 @@
+import { nextOccurrence, type RecurrenceFreq } from '@/lib/recurrence';
 import { supabase } from '@/lib/supabase';
 
 export type Reminder = {
@@ -8,6 +9,8 @@ export type Reminder = {
   due_at: string | null;
   completed_at: string | null;
   location_id: string | null;
+  recurrence_freq: RecurrenceFreq | null;
+  recurrence_weekday: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -23,6 +26,10 @@ export async function listReminders(locationId: string | null) {
     .returns<Reminder[]>();
 }
 
+export async function getReminder(id: string) {
+  return supabase.from('reminders').select('*').eq('id', id).single<Reminder>();
+}
+
 export async function createReminder(title: string, locationId: string | null) {
   return supabase
     .from('reminders')
@@ -31,13 +38,73 @@ export async function createReminder(title: string, locationId: string | null) {
     .single<Reminder>();
 }
 
-export async function setReminderCompleted(id: string, completed: boolean) {
+// Completing a recurring reminder never sets completed_at — it just rolls
+// due_at forward to the next occurrence, so it stays active in the list.
+export async function completeReminder(reminder: Reminder) {
+  if (reminder.recurrence_freq && reminder.due_at) {
+    const next = nextOccurrence(new Date(reminder.due_at), reminder.recurrence_freq, reminder.recurrence_weekday);
+    return supabase
+      .from('reminders')
+      .update({ due_at: next.toISOString() })
+      .eq('id', reminder.id)
+      .select()
+      .single<Reminder>();
+  }
   return supabase
     .from('reminders')
-    .update({ completed_at: completed ? new Date().toISOString() : null })
-    .eq('id', id)
+    .update({ completed_at: new Date().toISOString() })
+    .eq('id', reminder.id)
     .select()
     .single<Reminder>();
+}
+
+export async function uncompleteReminder(id: string) {
+  return supabase.from('reminders').update({ completed_at: null }).eq('id', id).select().single<Reminder>();
+}
+
+// Skips this occurrence of a recurring reminder without counting it as done.
+export async function skipReminderOccurrence(reminder: Reminder) {
+  if (!reminder.recurrence_freq || !reminder.due_at) {
+    throw new Error('skipReminderOccurrence requires a recurring reminder with a due date');
+  }
+  const next = nextOccurrence(new Date(reminder.due_at), reminder.recurrence_freq, reminder.recurrence_weekday);
+  return supabase
+    .from('reminders')
+    .update({ due_at: next.toISOString() })
+    .eq('id', reminder.id)
+    .select()
+    .single<Reminder>();
+}
+
+export async function snoozeReminder(reminder: Reminder) {
+  const base = reminder.due_at ? new Date(reminder.due_at) : new Date();
+  base.setDate(base.getDate() + 1);
+  return supabase
+    .from('reminders')
+    .update({ due_at: base.toISOString() })
+    .eq('id', reminder.id)
+    .select()
+    .single<Reminder>();
+}
+
+// Setting due_at to null also clears recurrence, since a recurring reminder
+// needs a due date to advance from.
+export async function setReminderDueAt(id: string, dueAt: Date | null) {
+  const fields = dueAt
+    ? { due_at: dueAt.toISOString() }
+    : { due_at: null, recurrence_freq: null, recurrence_weekday: null };
+  return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
+}
+
+export async function updateReminderSchedule(
+  id: string,
+  fields: {
+    due_at: string | null;
+    recurrence_freq: RecurrenceFreq | null;
+    recurrence_weekday: number | null;
+  }
+) {
+  return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
 }
 
 export async function deleteReminder(id: string) {

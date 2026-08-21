@@ -60,6 +60,7 @@ function RootLayoutNav() {
       <Stack>
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="reminder/[id]" options={{ presentation: 'modal', title: 'Edit Reminder' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
