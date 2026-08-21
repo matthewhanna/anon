@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 
-type Option = { id: string; name: string };
+type Option = { id: string; name: string; is_individual: boolean };
 
 type Props = {
   value: string;
@@ -9,6 +9,16 @@ type Props = {
 };
 
 export default function AssigneeSelect({ value, options, onChange }: Props) {
+  const people = options.filter((option) => option.is_individual);
+  const groups = options.filter((option) => !option.is_individual);
+
+  const optionEl = (option: Option) => createElement('option', { key: option.id, value: option.id }, option.name);
+
+  const children = [
+    people.length > 0 && createElement('optgroup', { key: 'people', label: 'People' }, people.map(optionEl)),
+    groups.length > 0 && createElement('optgroup', { key: 'groups', label: 'Groups' }, groups.map(optionEl)),
+  ].filter(Boolean);
+
   return createElement(
     'select',
     {
@@ -23,6 +33,6 @@ export default function AssigneeSelect({ value, options, onChange }: Props) {
         boxSizing: 'border-box',
       },
     },
-    options.map((option) => createElement('option', { key: option.id, value: option.id }, option.name))
+    children
   );
 }
