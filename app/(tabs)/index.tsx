@@ -39,6 +39,8 @@ export default function RemindersScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [newSchedule, setNewSchedule] = useState('');
+  const [newScheduleError, setNewScheduleError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scheduleTexts, setScheduleTexts] = useState<Record<string, string>>({});
@@ -135,10 +137,38 @@ export default function RemindersScreen() {
     const { data, error } = await createReminder(title, activeLocationId, activeRoomId);
     if (error) {
       setErrorMessage(error.message);
-    } else if (data) {
-      setNewTitle('');
-      setReminders((current) => [data, ...current]);
+      setIsAdding(false);
+      return;
     }
+    if (!data) {
+      setIsAdding(false);
+      return;
+    }
+    setNewTitle('');
+    let created = data;
+
+    const scheduleText = newSchedule.trim();
+    if (scheduleText) {
+      const parsed = parseScheduleInput(scheduleText);
+      if (!parsed) {
+        setNewScheduleError('Couldn\'t understand that — try "8/25/26", "next Tue", or "every Tue at 11a".');
+      } else {
+        setNewScheduleError(null);
+        const { data: scheduled, error: scheduleError } = await updateReminderSchedule(created.id, {
+          due_at: parsed.dueAt.toISOString(),
+          recurrence_freq: parsed.recurrenceFreq,
+          recurrence_weekday: parsed.recurrenceWeekday,
+        });
+        if (scheduleError) {
+          setErrorMessage(scheduleError.message);
+        } else if (scheduled) {
+          created = scheduled;
+        }
+      }
+      setNewSchedule('');
+    }
+
+    setReminders((current) => [created, ...current]);
     setIsAdding(false);
   }
 
@@ -412,7 +442,19 @@ export default function RemindersScreen() {
                     returnKeyType="done"
                   />
                 </View>
-                <View style={[styles.cell, styles.colDue]} />
+                <View style={[styles.cell, styles.colDue]}>
+                  <TextInput
+                    style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+                    value={newSchedule}
+                    onChangeText={setNewSchedule}
+                    placeholder="next Tue, every Tue 11a…"
+                    placeholderTextColor="#888"
+                    editable={!isAdding}
+                    onSubmitEditing={handleAdd}
+                    returnKeyType="done"
+                  />
+                  {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
+                </View>
                 <View style={[styles.cell, styles.colAssignee]} />
                 <View style={[styles.cell, styles.colDelegate]} />
                 <View style={[styles.cell, styles.colTrash]} />
