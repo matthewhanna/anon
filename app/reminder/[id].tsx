@@ -5,8 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { listFamilyMembers, type FamilyMember } from '@/lib/family-members';
-import { listGroups, type Group } from '@/lib/groups';
+import { listAssignableOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
 import { formatDueAt, WEEKDAY_NAMES, type RecurrenceFreq } from '@/lib/recurrence';
 import {
@@ -16,7 +15,6 @@ import {
   skipReminderOccurrence,
   snoozeReminder,
   updateReminderSchedule,
-  type AssigneeTarget,
   type Reminder,
 } from '@/lib/reminders';
 
@@ -42,8 +40,7 @@ export default function ReminderEditScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scheduleText, setScheduleText] = useState('');
   const [scheduleError, setScheduleError] = useState<string | null>(null);
-  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
 
   useEffect(() => {
     getReminder(id).then(({ data, error }) => {
@@ -57,26 +54,17 @@ export default function ReminderEditScreen() {
       }
       setIsLoading(false);
     });
-    listFamilyMembers().then(({ data, error }) => {
+    listAssignableOwners().then(({ data, error }) => {
       if (!error) {
-        setFamilyMembers(data ?? []);
-      }
-    });
-    listGroups().then(({ data, error }) => {
-      if (!error) {
-        setGroups(data ?? []);
+        setAssignableOwners(data ?? []);
       }
     });
   }, [id]);
 
-  async function handleAssign(target: AssigneeTarget) {
+  async function handleAssign(ownerId: string) {
     if (!reminder) return;
-    setReminder({
-      ...reminder,
-      assignee_id: target.type === 'member' ? target.id : null,
-      assignee_group_id: target.type === 'group' ? target.id : null,
-    });
-    const { error } = await setReminderAssignee(reminder.id, target);
+    setReminder({ ...reminder, assignee_id: ownerId });
+    const { error } = await setReminderAssignee(reminder.id, ownerId);
     if (error) {
       setErrorMessage(error.message);
     }
@@ -166,34 +154,18 @@ export default function ReminderEditScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>{reminder.title}</Text>
 
-      {(familyMembers.length > 0 || groups.length > 0) && (
+      {assignableOwners.length > 0 && (
         <>
           <Text style={styles.sectionLabel}>Assigned to</Text>
           <View style={styles.optionRow}>
-            {familyMembers.map((member) => {
+            {assignableOwners.map((member) => {
               const isActive = member.id === reminder.assignee_id;
               return (
                 <Pressable
                   key={member.id}
                   style={[styles.optionButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
-                  onPress={() => handleAssign({ type: 'member', id: member.id })}>
+                  onPress={() => handleAssign(member.id)}>
                   <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{member.name}</Text>
-                </Pressable>
-              );
-            })}
-            {groups.map((group) => {
-              const isActive = group.id === reminder.assignee_group_id;
-              return (
-                <Pressable
-                  key={group.id}
-                  style={[
-                    styles.optionButton,
-                    styles.groupButton,
-                    { borderColor: tintColor },
-                    isActive && { backgroundColor: tintColor },
-                  ]}
-                  onPress={() => handleAssign({ type: 'group', id: group.id })}>
-                  <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{group.name}</Text>
                 </Pressable>
               );
             })}
@@ -340,9 +312,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-  },
-  groupButton: {
-    borderStyle: 'dashed',
   },
   error: {
     color: '#e53e3e',

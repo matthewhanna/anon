@@ -3,7 +3,6 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@react-native-picker/picker": "2.11.4",
     "@supabase/supabase-js": "^2.107.0",
     "chrono-node": "^2.10.1",
     "expo": "~56.0.9",

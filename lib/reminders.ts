@@ -10,8 +10,7 @@ export type Reminder = {
   completed_at: string | null;
   location_id: string | null;
   room_id: string | null;
-  assignee_id: string | null;
-  assignee_group_id: string | null;
+  assignee_id: string;
   recurrence_freq: RecurrenceFreq | null;
   recurrence_weekday: number | null;
   created_at: string;
@@ -112,15 +111,26 @@ export async function updateReminderSchedule(
   return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
 }
 
-export type AssigneeTarget = { type: 'member'; id: string } | { type: 'group'; id: string };
+// Reassignment goes through RPCs (SECURITY DEFINER), not a plain update:
+// Postgres requires an UPDATE's new row to also pass the table's SELECT
+// policy, so a direct update could never set owner_id/assignee_id to
+// something outside the caller's own visibility — even with an
+// unconditional WITH CHECK. These functions check visibility of the
+// *current* reminder, then bypass RLS for the write itself.
+export async function setReminderAssignee(id: string, ownerId: string) {
+  const { data, error } = await supabase.rpc('reassign_reminder_assignee', {
+    target_reminder_id: id,
+    new_assignee_id: ownerId,
+  });
+  return { data: data as Reminder | null, error };
+}
 
-// A reminder is always assigned to a person or a group, never both, never neither.
-export async function setReminderAssignee(id: string, target: AssigneeTarget) {
-  const fields =
-    target.type === 'member'
-      ? { assignee_id: target.id, assignee_group_id: null }
-      : { assignee_id: null, assignee_group_id: target.id };
-  return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
+export async function setReminderOwner(id: string, ownerId: string) {
+  const { data, error } = await supabase.rpc('reassign_reminder_owner', {
+    target_reminder_id: id,
+    new_owner_id: ownerId,
+  });
+  return { data: data as Reminder | null, error };
 }
 
 export async function deleteReminder(id: string) {

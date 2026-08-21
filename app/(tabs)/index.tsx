@@ -1,14 +1,13 @@
-import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput } from 'react-native';
 
+import AssigneeSelect from '@/components/AssigneeSelect';
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { listFamilyMembers, type FamilyMember } from '@/lib/family-members';
-import { listGroups, type Group } from '@/lib/groups';
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
+import { listAssignableOwners, listOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
 import { formatDueAt, formatRecurrence, nextOccurrence } from '@/lib/recurrence';
 import {
@@ -17,21 +16,12 @@ import {
   deleteReminder,
   listReminders,
   setReminderAssignee,
+  setReminderOwner,
   uncompleteReminder,
   updateReminderSchedule,
-  type AssigneeTarget,
   type Reminder,
 } from '@/lib/reminders';
 import { createRoom, listRooms, type Room } from '@/lib/rooms';
-
-function assigneeKey(reminder: Reminder): string {
-  return reminder.assignee_id ? `member:${reminder.assignee_id}` : `group:${reminder.assignee_group_id}`;
-}
-
-function parseAssigneeKey(key: string): AssigneeTarget {
-  const [type, id] = key.split(':');
-  return type === 'group' ? { type: 'group', id } : { type: 'member', id };
-}
 
 export default function RemindersScreen() {
   const router = useRouter();
@@ -43,8 +33,8 @@ export default function RemindersScreen() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [isAddingRoom, setIsAddingRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
-  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [owners, setOwners] = useState<Owner[]>([]);
+  const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -53,7 +43,7 @@ export default function RemindersScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scheduleTexts, setScheduleTexts] = useState<Record<string, string>>({});
   const [scheduleErrors, setScheduleErrors] = useState<Record<string, string | null>>({});
-  const [assigneeDrafts, setAssigneeDrafts] = useState<Record<string, string>>({});
+  const [assigneePopupFor, setAssigneePopupFor] = useState<string | null>(null);
 
   useEffect(() => {
     ensureDefaultLocations().then(({ data, error }) => {
@@ -65,14 +55,14 @@ export default function RemindersScreen() {
       setLocations(data ?? []);
       setActiveLocationId((current) => current ?? data?.[0]?.id ?? null);
     });
-    listFamilyMembers().then(({ data, error }) => {
+    listOwners().then(({ data, error }) => {
       if (!error) {
-        setFamilyMembers(data ?? []);
+        setOwners(data ?? []);
       }
     });
-    listGroups().then(({ data, error }) => {
+    listAssignableOwners().then(({ data, error }) => {
       if (!error) {
-        setGroups(data ?? []);
+        setAssignableOwners(data ?? []);
       }
     });
   }, []);
@@ -216,31 +206,34 @@ export default function RemindersScreen() {
     }
   }
 
-  async function handleAssign(reminder: Reminder, target: AssigneeTarget) {
+  async function handleSetOwner(reminder: Reminder, ownerId: string) {
     setReminders((current) =>
-      current.map((item) =>
-        item.id === reminder.id
-          ? {
-              ...item,
-              assignee_id: target.type === 'member' ? target.id : null,
-              assignee_group_id: target.type === 'group' ? target.id : null,
-            }
-          : item
-      )
+      current.map((item) => (item.id === reminder.id ? { ...item, owner_id: ownerId } : item))
     );
-    const { error } = await setReminderAssignee(reminder.id, target);
+    const { error } = await setReminderOwner(reminder.id, ownerId);
     if (error) {
       setErrorMessage(error.message);
       if (activeLocationId) load(activeLocationId, activeRoomId);
     }
   }
 
-  async function handleDelegate(reminder: Reminder) {
-    const draft = assigneeDrafts[reminder.id];
-    if (!draft) {
-      return;
+  async function handleAssign(reminder: Reminder, ownerId: string) {
+    setReminders((current) =>
+      current.map((item) => (item.id === reminder.id ? { ...item, assignee_id: ownerId } : item))
+    );
+    const { error } = await setReminderAssignee(reminder.id, ownerId);
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
     }
-    await handleAssign(reminder, parseAssigneeKey(draft));
+  }
+
+  async function handleAssigneeSelect(ownerId: string) {
+    const reminder = reminders.find((item) => item.id === assigneePopupFor);
+    setAssigneePopupFor(null);
+    if (reminder) {
+      await handleAssign(reminder, ownerId);
+    }
   }
 
   async function handleDelete(reminder: Reminder) {
@@ -330,8 +323,8 @@ export default function RemindersScreen() {
           <View style={styles.headerRow}>
             <View style={styles.colDone} />
             <View style={styles.colTask} />
-            <Text style={[styles.headerCell, styles.colDue]}>Due</Text>
-            <Text style={[styles.headerCell, styles.colAssignee]}>Assignee</Text>
+            <View style={styles.colDue} />
+            <View style={styles.colAssignee} />
             <View style={styles.colDelegate} />
             <View style={styles.colTrash} />
           </View>
@@ -383,24 +376,16 @@ export default function RemindersScreen() {
                     {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
                   </View>
                   <View style={[styles.cell, styles.colAssignee]}>
-                    <Picker
-                      selectedValue={assigneeDrafts[item.id] ?? assigneeKey(item)}
-                      onValueChange={(value) =>
-                        setAssigneeDrafts((current) => ({ ...current, [item.id]: String(value) }))
-                      }
-                      style={styles.assigneePicker}>
-                      {familyMembers.map((member) => (
-                        <Picker.Item key={member.id} label={member.name} value={`member:${member.id}`} />
-                      ))}
-                      {groups.map((group) => (
-                        <Picker.Item key={group.id} label={`Group: ${group.name}`} value={`group:${group.id}`} />
-                      ))}
-                    </Picker>
+                    <AssigneeSelect
+                      value={item.owner_id}
+                      options={owners}
+                      onChange={(ownerId) => handleSetOwner(item, ownerId)}
+                    />
                   </View>
                   <View style={[styles.cell, styles.colDelegate]}>
                     <Pressable
                       style={[styles.delegateButton, { backgroundColor: tintColor }]}
-                      onPress={() => handleDelegate(item)}>
+                      onPress={() => setAssigneePopupFor(item.id)}>
                       <Text style={styles.delegateButtonText}>Delegate</Text>
                     </Pressable>
                   </View>
@@ -436,6 +421,25 @@ export default function RemindersScreen() {
           />
         </>
       )}
+      <Modal
+        visible={assigneePopupFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAssigneePopupFor(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setAssigneePopupFor(null)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Assign to</Text>
+            {assignableOwners.map((owner) => (
+              <Pressable
+                key={owner.id}
+                style={styles.modalOption}
+                onPress={() => handleAssigneeSelect(owner.id)}>
+                <Text style={styles.modalOptionText}>{owner.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -497,12 +501,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#8884',
   },
-  headerCell: {
-    fontSize: 12,
-    fontWeight: '700',
-    opacity: 0.6,
-    textTransform: 'uppercase',
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -527,10 +525,10 @@ const styles = StyleSheet.create({
     minWidth: 130,
   },
   colAssignee: {
-    width: 150,
+    width: 130,
   },
   colDelegate: {
-    width: 90,
+    width: 84,
   },
   colTrash: {
     width: 32,
@@ -573,21 +571,44 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     marginTop: 2,
   },
-  assigneePicker: {
-    width: '100%',
+  trashIcon: {
+    fontSize: 18,
   },
   delegateButton: {
     borderRadius: 6,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   delegateButtonText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 12,
   },
-  trashIcon: {
-    fontSize: 18,
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCard: {
+    borderRadius: 12,
+    padding: 16,
+    minWidth: 220,
+    gap: 2,
+  },
+  modalTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    opacity: 0.6,
+    marginBottom: 8,
+  },
+  modalOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  modalOptionText: {
+    fontSize: 16,
   },
 });
