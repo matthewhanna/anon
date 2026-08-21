@@ -18,6 +18,7 @@ import {
   updateReminderSchedule,
   type Reminder,
 } from '@/lib/reminders';
+import { createRoom, listRooms, type Room } from '@/lib/rooms';
 
 export default function RemindersScreen() {
   const router = useRouter();
@@ -25,6 +26,10 @@ export default function RemindersScreen() {
   const tintColor = Colors[colorScheme].tint;
   const [locations, setLocations] = useState<Location[]>([]);
   const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [isAddingRoom, setIsAddingRoom] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -46,8 +51,8 @@ export default function RemindersScreen() {
     });
   }, []);
 
-  const load = useCallback(async (locationId: string) => {
-    const { data, error } = await listReminders(locationId);
+  const load = useCallback(async (locationId: string, roomId: string | null) => {
+    const { data, error } = await listReminders(locationId, roomId);
     if (error) {
       setErrorMessage(error.message);
     } else {
@@ -60,17 +65,49 @@ export default function RemindersScreen() {
     if (!activeLocationId) {
       return;
     }
+    setActiveRoomId(null);
+    setIsAddingRoom(false);
+    setNewRoomName('');
+    listRooms(activeLocationId).then(({ data, error }) => {
+      if (error) {
+        setErrorMessage(error.message);
+      } else {
+        setRooms(data ?? []);
+      }
+    });
+  }, [activeLocationId]);
+
+  useEffect(() => {
+    if (!activeLocationId) {
+      return;
+    }
     setIsLoading(true);
-    load(activeLocationId).finally(() => setIsLoading(false));
-  }, [activeLocationId, load]);
+    load(activeLocationId, activeRoomId).finally(() => setIsLoading(false));
+  }, [activeLocationId, activeRoomId, load]);
 
   async function handleRefresh() {
     if (!activeLocationId) {
       return;
     }
     setIsRefreshing(true);
-    await load(activeLocationId);
+    await load(activeLocationId, activeRoomId);
     setIsRefreshing(false);
+  }
+
+  async function handleAddRoom() {
+    const name = newRoomName.trim();
+    if (!name || !activeLocationId) {
+      return;
+    }
+    const { data, error } = await createRoom(activeLocationId, name);
+    if (error) {
+      setErrorMessage(error.message);
+    } else if (data) {
+      setRooms((current) => [...current, data]);
+      setActiveRoomId(data.id);
+      setNewRoomName('');
+      setIsAddingRoom(false);
+    }
   }
 
   async function handleAdd() {
@@ -79,7 +116,7 @@ export default function RemindersScreen() {
       return;
     }
     setIsAdding(true);
-    const { data, error } = await createReminder(title, activeLocationId);
+    const { data, error } = await createReminder(title, activeLocationId, activeRoomId);
     if (error) {
       setErrorMessage(error.message);
     } else if (data) {
@@ -114,7 +151,7 @@ export default function RemindersScreen() {
 
     if (error) {
       setErrorMessage(error.message);
-      if (activeLocationId) load(activeLocationId);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
     }
   }
 
@@ -129,7 +166,7 @@ export default function RemindersScreen() {
     const { error } = await setReminderDueAt(reminder.id, null);
     if (error) {
       setErrorMessage(error.message);
-      if (activeLocationId) load(activeLocationId);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
     }
   }
 
@@ -164,7 +201,7 @@ export default function RemindersScreen() {
     });
     if (error) {
       setErrorMessage(error.message);
-      if (activeLocationId) load(activeLocationId);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
     }
   }
 
@@ -173,7 +210,7 @@ export default function RemindersScreen() {
     const { error } = await deleteReminder(reminder.id);
     if (error) {
       setErrorMessage(error.message);
-      if (activeLocationId) load(activeLocationId);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
     }
   }
 
@@ -202,6 +239,47 @@ export default function RemindersScreen() {
               </Pressable>
             );
           })}
+        </View>
+      )}
+      {activeLocationId && (
+        <View style={styles.roomRow}>
+          {rooms.length > 0 && (
+            <Pressable
+              style={[styles.roomButton, { borderColor: tintColor }, activeRoomId === null && { backgroundColor: tintColor }]}
+              onPress={() => setActiveRoomId(null)}>
+              <Text style={activeRoomId === null ? { color: '#fff' } : { color: tintColor }}>All</Text>
+            </Pressable>
+          )}
+          {rooms.map((room) => {
+            const isActive = room.id === activeRoomId;
+            return (
+              <Pressable
+                key={room.id}
+                style={[styles.roomButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
+                onPress={() => setActiveRoomId(room.id)}>
+                <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{room.name}</Text>
+              </Pressable>
+            );
+          })}
+          {isAddingRoom ? (
+            <TextInput
+              style={[styles.smallQuickInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+              value={newRoomName}
+              onChangeText={setNewRoomName}
+              placeholder="Room name"
+              placeholderTextColor="#888"
+              onSubmitEditing={handleAddRoom}
+              onBlur={() => {
+                if (!newRoomName.trim()) setIsAddingRoom(false);
+              }}
+              returnKeyType="done"
+              autoFocus
+            />
+          ) : (
+            <Pressable style={[styles.roomButton, { borderColor: tintColor }]} onPress={() => setIsAddingRoom(true)}>
+              <Text style={{ color: tintColor }}>+ Room</Text>
+            </Pressable>
+          )}
         </View>
       )}
       <View style={styles.addRow}>
@@ -311,6 +389,19 @@ const styles = StyleSheet.create({
   },
   locationButtonText: {
     fontWeight: '600',
+  },
+  roomRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  roomButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
   addRow: {
     flexDirection: 'row',

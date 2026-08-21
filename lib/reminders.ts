@@ -9,17 +9,20 @@ export type Reminder = {
   due_at: string | null;
   completed_at: string | null;
   location_id: string | null;
+  room_id: string | null;
   recurrence_freq: RecurrenceFreq | null;
   recurrence_weekday: number | null;
   created_at: string;
   updated_at: string;
 };
 
-export async function listReminders(locationId: string | null) {
-  return supabase
-    .from('reminders')
-    .select('*')
-    .eq('location_id', locationId)
+// roomId: null means no room filter (every reminder in the location, tagged or not).
+export async function listReminders(locationId: string | null, roomId: string | null) {
+  let query = supabase.from('reminders').select('*').eq('location_id', locationId);
+  if (roomId) {
+    query = query.eq('room_id', roomId);
+  }
+  return query
     .order('completed_at', { ascending: true, nullsFirst: true })
     .order('due_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -30,10 +33,10 @@ export async function getReminder(id: string) {
   return supabase.from('reminders').select('*').eq('id', id).single<Reminder>();
 }
 
-export async function createReminder(title: string, locationId: string | null) {
+export async function createReminder(title: string, locationId: string | null, roomId: string | null) {
   return supabase
     .from('reminders')
-    .insert({ title, location_id: locationId })
+    .insert({ title, location_id: locationId, room_id: roomId })
     .select()
     .single<Reminder>();
 }
