@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 
 export type Location = {
   id: string;
-  user_id: string;
+  owner_id: string;
   name: string;
   latitude: number | null;
   longitude: number | null;

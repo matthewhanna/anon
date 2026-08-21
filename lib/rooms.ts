@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 
 export type Room = {
   id: string;
-  user_id: string;
+  owner_id: string;
   location_id: string;
   name: string;
   created_at: string;

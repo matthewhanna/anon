@@ -3,13 +3,15 @@ import { supabase } from '@/lib/supabase';
 
 export type Reminder = {
   id: string;
-  user_id: string;
+  owner_id: string;
   title: string;
   notes: string | null;
   due_at: string | null;
   completed_at: string | null;
   location_id: string | null;
   room_id: string | null;
+  assignee_id: string | null;
+  assignee_group_id: string | null;
   recurrence_freq: RecurrenceFreq | null;
   recurrence_weekday: number | null;
   created_at: string;
@@ -107,6 +109,17 @@ export async function updateReminderSchedule(
     recurrence_weekday: number | null;
   }
 ) {
+  return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
+}
+
+export type AssigneeTarget = { type: 'member'; id: string } | { type: 'group'; id: string };
+
+// A reminder is always assigned to a person or a group, never both, never neither.
+export async function setReminderAssignee(id: string, target: AssigneeTarget) {
+  const fields =
+    target.type === 'member'
+      ? { assignee_id: target.id, assignee_group_id: null }
+      : { assignee_id: null, assignee_group_id: target.id };
   return supabase.from('reminders').update(fields).eq('id', id).select().single<Reminder>();
 }
 

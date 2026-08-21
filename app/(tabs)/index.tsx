@@ -5,6 +5,8 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { listFamilyMembers, type FamilyMember } from '@/lib/family-members';
+import { listGroups, type Group } from '@/lib/groups';
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
 import { parseScheduleInput } from '@/lib/parse-schedule';
 import { formatDueAt, formatRecurrence, nextOccurrence } from '@/lib/recurrence';
@@ -13,9 +15,11 @@ import {
   createReminder,
   deleteReminder,
   listReminders,
+  setReminderAssignee,
   setReminderDueAt,
   uncompleteReminder,
   updateReminderSchedule,
+  type AssigneeTarget,
   type Reminder,
 } from '@/lib/reminders';
 import { createRoom, listRooms, type Room } from '@/lib/rooms';
@@ -30,6 +34,8 @@ export default function RemindersScreen() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [isAddingRoom, setIsAddingRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -48,6 +54,16 @@ export default function RemindersScreen() {
       }
       setLocations(data ?? []);
       setActiveLocationId((current) => current ?? data?.[0]?.id ?? null);
+    });
+    listFamilyMembers().then(({ data, error }) => {
+      if (!error) {
+        setFamilyMembers(data ?? []);
+      }
+    });
+    listGroups().then(({ data, error }) => {
+      if (!error) {
+        setGroups(data ?? []);
+      }
     });
   }, []);
 
@@ -205,6 +221,25 @@ export default function RemindersScreen() {
     }
   }
 
+  async function handleAssign(reminder: Reminder, target: AssigneeTarget) {
+    setReminders((current) =>
+      current.map((item) =>
+        item.id === reminder.id
+          ? {
+              ...item,
+              assignee_id: target.type === 'member' ? target.id : null,
+              assignee_group_id: target.type === 'group' ? target.id : null,
+            }
+          : item
+      )
+    );
+    const { error } = await setReminderAssignee(reminder.id, target);
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
+    }
+  }
+
   async function handleDelete(reminder: Reminder) {
     setReminders((current) => current.filter((item) => item.id !== reminder.id));
     const { error } = await deleteReminder(reminder.id);
@@ -352,6 +387,41 @@ export default function RemindersScreen() {
                     {recurrenceLabel ? <Text style={styles.rowMeta}>{recurrenceLabel}</Text> : null}
                   </View>
                   {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
+                  {(familyMembers.length > 0 || groups.length > 0) && (
+                    <View style={styles.assigneeRow}>
+                      {familyMembers.map((member) => {
+                        const isActive = member.id === item.assignee_id;
+                        return (
+                          <Pressable
+                            key={member.id}
+                            style={[
+                              styles.assigneeButton,
+                              { borderColor: tintColor },
+                              isActive && { backgroundColor: tintColor },
+                            ]}
+                            onPress={() => handleAssign(item, { type: 'member', id: member.id })}>
+                            <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{member.name}</Text>
+                          </Pressable>
+                        );
+                      })}
+                      {groups.map((group) => {
+                        const isActive = group.id === item.assignee_group_id;
+                        return (
+                          <Pressable
+                            key={group.id}
+                            style={[
+                              styles.assigneeButton,
+                              styles.groupButton,
+                              { borderColor: tintColor },
+                              isActive && { backgroundColor: tintColor },
+                            ]}
+                            onPress={() => handleAssign(item, { type: 'group', id: group.id })}>
+                            <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{group.name}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
                 </View>
                 <Pressable onPress={() => handleDelete(item)} hitSlop={8}>
                   <Text style={styles.deleteText}>Delete</Text>
@@ -488,6 +558,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textDecorationLine: 'underline',
     opacity: 0.7,
+  },
+  assigneeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  assigneeButton: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  groupButton: {
+    borderStyle: 'dashed',
   },
   deleteText: {
     color: '#e53e3e',
