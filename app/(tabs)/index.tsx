@@ -1,14 +1,17 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, RefreshControl, SectionList, StyleSheet, TextInput } from 'react-native';
 
 import AssigneeSelect from '@/components/AssigneeSelect';
+import DraggableRow from '@/components/DraggableRow';
+import DropZone from '@/components/DropZone';
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
 import { listAssignableOwners, listOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
+import { createProject, listProjects, moveProject, type Project } from '@/lib/projects';
 import { formatDueAt, formatRecurrence, nextOccurrence } from '@/lib/recurrence';
 import {
   completeReminder,
@@ -17,11 +20,14 @@ import {
   listReminders,
   setReminderAssignee,
   setReminderOwner,
+  setReminderProject,
   uncompleteReminder,
   updateReminderSchedule,
   type Reminder,
 } from '@/lib/reminders';
 import { createRoom, listRooms, type Room } from '@/lib/rooms';
+
+const NO_PROJECT_SECTION_ID = '__none__';
 
 export default function RemindersScreen() {
   const router = useRouter();
@@ -35,6 +41,11 @@ export default function RemindersScreen() {
   const [newRoomName, setNewRoomName] = useState('');
   const [owners, setOwners] = useState<Owner[]>([]);
   const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Record<string, boolean>>({});
+  const [isAddingProject, setIsAddingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [projectPopupFor, setProjectPopupFor] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -65,6 +76,11 @@ export default function RemindersScreen() {
     listAssignableOwners().then(({ data, error }) => {
       if (!error) {
         setAssignableOwners(data ?? []);
+      }
+    });
+    listProjects().then(({ data, error }) => {
+      if (!error) {
+        setProjects(data ?? []);
       }
     });
   }, []);
@@ -275,6 +291,89 @@ export default function RemindersScreen() {
     }
   }
 
+  async function handleSetReminderProject(reminderId: string, projectId: string | null) {
+    setReminders((current) =>
+      current.map((item) => (item.id === reminderId ? { ...item, project_id: projectId } : item))
+    );
+    const { error } = await setReminderProject(reminderId, projectId);
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
+    }
+  }
+
+  async function handleProjectPopupSelect(projectId: string | null) {
+    const reminderId = projectPopupFor;
+    setProjectPopupFor(null);
+    if (reminderId) {
+      await handleSetReminderProject(reminderId, projectId);
+    }
+  }
+
+  async function handleAddProject() {
+    const name = newProjectName.trim();
+    if (!name) {
+      return;
+    }
+    const { data, error } = await createProject(name);
+    if (error) {
+      setErrorMessage(error.message);
+    } else if (data) {
+      setProjects((current) => [...current, data]);
+      setNewProjectName('');
+      setIsAddingProject(false);
+    }
+  }
+
+  async function handleMoveProject(id: string, direction: 'up' | 'down') {
+    const result = await moveProject(projects, id, direction);
+    if (!result) {
+      return;
+    }
+    const { data, error } = await listProjects();
+    if (error) {
+      setErrorMessage(error.message);
+    } else {
+      setProjects(data ?? []);
+    }
+  }
+
+  const sections = useMemo(() => {
+    const byProject = new Map<string, Reminder[]>();
+    const noProject: Reminder[] = [];
+    for (const reminder of reminders) {
+      if (reminder.project_id) {
+        const list = byProject.get(reminder.project_id) ?? [];
+        list.push(reminder);
+        byProject.set(reminder.project_id, list);
+      } else {
+        noProject.push(reminder);
+      }
+    }
+    const projectSections = projects.map((project) => {
+      const items = byProject.get(project.id) ?? [];
+      return {
+        id: project.id,
+        title: project.name,
+        count: items.length,
+        data: collapsedProjectIds[project.id] ? [] : items,
+      };
+    });
+    return [
+      {
+        id: NO_PROJECT_SECTION_ID,
+        title: '',
+        count: noProject.length,
+        data: noProject,
+      },
+      ...projectSections,
+    ];
+  }, [projects, reminders, collapsedProjectIds]);
+
+  function toggleProjectCollapsed(id: string) {
+    setCollapsedProjectIds((current) => ({ ...current, [id]: !current[id] }));
+  }
+
   return (
     <View style={styles.container}>
       {locations.length > 0 && (
@@ -343,6 +442,27 @@ export default function RemindersScreen() {
           )}
         </View>
       )}
+      <View style={styles.projectAddRow}>
+        {isAddingProject ? (
+          <TextInput
+            style={[styles.smallQuickInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+            value={newProjectName}
+            onChangeText={setNewProjectName}
+            placeholder="Project name"
+            placeholderTextColor="#888"
+            onSubmitEditing={handleAddProject}
+            onBlur={() => {
+              if (!newProjectName.trim()) setIsAddingProject(false);
+            }}
+            returnKeyType="done"
+            autoFocus
+          />
+        ) : (
+          <Pressable style={[styles.roomButton, { borderColor: tintColor }]} onPress={() => setIsAddingProject(true)}>
+            <Text style={{ color: tintColor }}>+ Project</Text>
+          </Pressable>
+        )}
+      </View>
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       {isLoading ? (
         <View style={styles.centered}>
@@ -358,16 +478,83 @@ export default function RemindersScreen() {
             <View style={styles.colDelegate} />
             <View style={styles.colTrash} />
           </View>
-          <FlatList
-            data={reminders}
+          <SectionList
+            sections={sections}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={reminders.length === 0 && styles.emptyContainer}
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />}
-            ListEmptyComponent={<Text style={styles.emptyText}>No reminders yet.</Text>}
+            ListHeaderComponent={
+              <>
+                <View style={styles.row}>
+                  <View style={[styles.cell, styles.colDone]} />
+                  <View style={[styles.cell, styles.colTask]}>
+                    <TextInput
+                      style={[styles.rowTitle, { color: Colors[colorScheme].text }]}
+                      value={newTitle}
+                      onChangeText={setNewTitle}
+                      placeholder="New reminder"
+                      placeholderTextColor="#888"
+                      editable={!isAdding}
+                      onSubmitEditing={handleAdd}
+                      returnKeyType="done"
+                    />
+                  </View>
+                  <View style={[styles.cell, styles.colDue]}>
+                    <TextInput
+                      style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+                      value={newSchedule}
+                      onChangeText={setNewSchedule}
+                      placeholder="next Tue, every Tue 11a…"
+                      placeholderTextColor="#888"
+                      editable={!isAdding}
+                      onSubmitEditing={handleAdd}
+                      returnKeyType="done"
+                    />
+                    {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
+                  </View>
+                  <View style={[styles.cell, styles.colAssignee]} />
+                  <View style={[styles.cell, styles.colDelegate]} />
+                  <View style={[styles.cell, styles.colTrash]} />
+                </View>
+                {reminders.length === 0 ? <Text style={styles.emptyText}>No reminders yet.</Text> : null}
+              </>
+            }
+            renderSectionHeader={({ section }) => {
+              if (section.id === NO_PROJECT_SECTION_ID) {
+                return null;
+              }
+              const projectIndex = projects.findIndex((project) => project.id === section.id);
+              const project = projectIndex === -1 ? null : projects[projectIndex];
+              return (
+                <DropZone onDropReminder={(reminderId) => handleSetReminderProject(reminderId, project ? project.id : null)}>
+                  <View style={[styles.sectionHeader, { backgroundColor: Colors[colorScheme].background }]}>
+                    <Pressable style={styles.sectionHeaderMain} onPress={() => toggleProjectCollapsed(section.id)}>
+                      <Text style={styles.sectionHeaderChevron}>{collapsedProjectIds[section.id] ? '▸' : '▾'}</Text>
+                      <Text style={styles.sectionHeaderTitle}>{section.title}</Text>
+                      <Text style={styles.sectionHeaderCount}>{section.count}</Text>
+                    </Pressable>
+                    {project && (
+                      <View style={styles.projectMoveButtons}>
+                        <Pressable onPress={() => handleMoveProject(project.id, 'up')} hitSlop={4} disabled={projectIndex === 0}>
+                          <Text style={[styles.moveArrow, projectIndex === 0 && styles.moveArrowDisabled]}>▲</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleMoveProject(project.id, 'down')}
+                          hitSlop={4}
+                          disabled={projectIndex === projects.length - 1}>
+                          <Text style={[styles.moveArrow, projectIndex === projects.length - 1 && styles.moveArrowDisabled]}>▼</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                </DropZone>
+              );
+            }}
             renderItem={({ item }) => {
               const recurrenceLabel = formatRecurrence(item.recurrence_freq, item.recurrence_weekday);
               const scheduleError = scheduleErrors[item.id];
+              const projectName = projects.find((project) => project.id === item.project_id)?.name;
               return (
+                <DraggableRow reminderId={item.id}>
                 <View style={styles.row}>
                   <View style={[styles.cell, styles.colDone]}>
                     <Pressable onPress={() => handleToggle(item)} hitSlop={8}>
@@ -385,6 +572,9 @@ export default function RemindersScreen() {
                       <Text style={[styles.rowTitle, item.completed_at && styles.rowTitleCompleted]}>
                         {item.title}
                       </Text>
+                    </Pressable>
+                    <Pressable onPress={() => setProjectPopupFor(item.id)} hitSlop={4}>
+                      <Text style={styles.rowMeta}>{projectName ?? '+ Project'}</Text>
                     </Pressable>
                   </View>
                   <View style={[styles.cell, styles.colDue]}>
@@ -425,41 +615,9 @@ export default function RemindersScreen() {
                     </Pressable>
                   </View>
                 </View>
+                </DraggableRow>
               );
             }}
-            ListFooterComponent={
-              <View style={styles.row}>
-                <View style={[styles.cell, styles.colDone]} />
-                <View style={[styles.cell, styles.colTask]}>
-                  <TextInput
-                    style={[styles.rowTitle, { color: Colors[colorScheme].text }]}
-                    value={newTitle}
-                    onChangeText={setNewTitle}
-                    placeholder="New reminder"
-                    placeholderTextColor="#888"
-                    editable={!isAdding}
-                    onSubmitEditing={handleAdd}
-                    returnKeyType="done"
-                  />
-                </View>
-                <View style={[styles.cell, styles.colDue]}>
-                  <TextInput
-                    style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
-                    value={newSchedule}
-                    onChangeText={setNewSchedule}
-                    placeholder="next Tue, every Tue 11a…"
-                    placeholderTextColor="#888"
-                    editable={!isAdding}
-                    onSubmitEditing={handleAdd}
-                    returnKeyType="done"
-                  />
-                  {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
-                </View>
-                <View style={[styles.cell, styles.colAssignee]} />
-                <View style={[styles.cell, styles.colDelegate]} />
-                <View style={[styles.cell, styles.colTrash]} />
-              </View>
-            }
           />
         </>
       )}
@@ -482,11 +640,46 @@ export default function RemindersScreen() {
           </View>
         </Pressable>
       </Modal>
+      <Modal
+        visible={projectPopupFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProjectPopupFor(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setProjectPopupFor(null)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Move to project</Text>
+            <Pressable style={styles.modalOption} onPress={() => handleProjectPopupSelect(null)}>
+              <Text style={styles.modalOptionText}>No project</Text>
+            </Pressable>
+            {projects.map((project) => (
+              <Pressable
+                key={project.id}
+                style={styles.modalOption}
+                onPress={() => handleProjectPopupSelect(project.id)}>
+                <Text style={styles.modalOptionText}>{project.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  projectAddRow: {
+    marginBottom: 12,
+  },
+  projectMoveButtons: {
+    gap: 2,
+  },
+  moveArrow: {
+    fontSize: 12,
+    opacity: 0.6,
+  },
+  moveArrowDisabled: {
+    opacity: 0.2,
+  },
   container: {
     flex: 1,
     paddingHorizontal: 16,
@@ -528,11 +721,6 @@ const styles = StyleSheet.create({
     color: '#e53e3e',
     marginBottom: 8,
   },
-  emptyContainer: {
-    flexGrow: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   emptyText: {
     opacity: 0.6,
   },
@@ -542,6 +730,31 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#8884',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  sectionHeaderMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  sectionHeaderChevron: {
+    fontSize: 12,
+    opacity: 0.6,
+    width: 12,
+  },
+  sectionHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  sectionHeaderCount: {
+    fontSize: 12,
+    opacity: 0.5,
   },
   row: {
     flexDirection: 'row',

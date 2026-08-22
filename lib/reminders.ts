@@ -10,6 +10,7 @@ export type Reminder = {
   completed_at: string | null;
   location_id: string | null;
   room_id: string | null;
+  project_id: string | null;
   assignee_id: string;
   recurrence_freq: RecurrenceFreq | null;
   recurrence_weekday: number | null;
@@ -18,6 +19,9 @@ export type Reminder = {
 };
 
 // roomId: null means no room filter (every reminder in the location, tagged or not).
+// Fetches every matching reminder regardless of project — the main screen
+// groups them into project sections client-side rather than filtering by
+// project at query time.
 export async function listReminders(locationId: string | null, roomId: string | null) {
   let query = supabase.from('reminders').select('*').eq('location_id', locationId);
   if (roomId) {
@@ -131,6 +135,10 @@ export async function setReminderOwner(id: string, ownerId: string) {
     new_owner_id: ownerId,
   });
   return { data: data as Reminder | null, error };
+}
+
+export async function setReminderProject(id: string, projectId: string | null) {
+  return supabase.from('reminders').update({ project_id: projectId }).eq('id', id).select().single<Reminder>();
 }
 
 export async function deleteReminder(id: string) {
