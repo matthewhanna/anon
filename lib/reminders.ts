@@ -141,6 +141,10 @@ export async function setReminderProject(id: string, projectId: string | null) {
   return supabase.from('reminders').update({ project_id: projectId }).eq('id', id).select().single<Reminder>();
 }
 
+export async function updateReminderTitle(id: string, title: string) {
+  return supabase.from('reminders').update({ title }).eq('id', id).select().single<Reminder>();
+}
+
 export async function deleteReminder(id: string) {
   return supabase.from('reminders').delete().eq('id', id);
 }

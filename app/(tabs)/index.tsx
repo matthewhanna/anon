@@ -23,6 +23,7 @@ import {
   setReminderProject,
   uncompleteReminder,
   updateReminderSchedule,
+  updateReminderTitle,
   type Reminder,
 } from '@/lib/reminders';
 import { createRoom, listRooms, type Room } from '@/lib/rooms';
@@ -56,6 +57,7 @@ export default function RemindersScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scheduleTexts, setScheduleTexts] = useState<Record<string, string>>({});
   const [scheduleErrors, setScheduleErrors] = useState<Record<string, string | null>>({});
+  const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
   const [assigneePopupFor, setAssigneePopupFor] = useState<string | null>(null);
 
   useEffect(() => {
@@ -186,6 +188,24 @@ export default function RemindersScreen() {
 
     setReminders((current) => [created, ...current]);
     setIsAdding(false);
+  }
+
+  async function handleTitleCommit(reminder: Reminder) {
+    const title = (titleDrafts[reminder.id] ?? reminder.title).trim();
+    setTitleDrafts((current) => {
+      const next = { ...current };
+      delete next[reminder.id];
+      return next;
+    });
+    if (!title || title === reminder.title) {
+      return;
+    }
+    setReminders((current) => current.map((item) => (item.id === reminder.id ? { ...item, title } : item)));
+    const { error } = await updateReminderTitle(reminder.id, title);
+    if (error) {
+      setErrorMessage(error.message);
+      if (activeLocationId) load(activeLocationId, activeRoomId);
+    }
   }
 
   async function handleToggle(reminder: Reminder) {
@@ -568,11 +588,23 @@ export default function RemindersScreen() {
                     </Pressable>
                   </View>
                   <View style={[styles.cell, styles.colTask]}>
-                    <Pressable onPress={() => router.push(`/reminder/${item.id}`)} style={styles.taskTitleTouch}>
-                      <Text style={[styles.rowTitle, item.completed_at && styles.rowTitleCompleted]}>
-                        {item.title}
-                      </Text>
-                    </Pressable>
+                    <View style={styles.taskTitleRow}>
+                      <TextInput
+                        style={[
+                          styles.rowTitleInput,
+                          { color: Colors[colorScheme].text },
+                          item.completed_at && styles.rowTitleCompleted,
+                        ]}
+                        value={titleDrafts[item.id] ?? item.title}
+                        onChangeText={(text) => setTitleDrafts((current) => ({ ...current, [item.id]: text }))}
+                        onBlur={() => handleTitleCommit(item)}
+                        onSubmitEditing={() => handleTitleCommit(item)}
+                        returnKeyType="done"
+                      />
+                      <Pressable onPress={() => router.push(`/reminder/${item.id}`)} hitSlop={6}>
+                        <Text style={[styles.detailChevron, { color: tintColor }]}>›</Text>
+                      </Pressable>
+                    </View>
                     <Pressable onPress={() => setProjectPopupFor(item.id)} hitSlop={4}>
                       <Text style={styles.rowMeta}>{projectName ?? '+ Project'}</Text>
                     </Pressable>
@@ -795,9 +827,6 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     borderWidth: 2,
   },
-  taskTitleTouch: {
-    flexShrink: 1,
-  },
   rowTitle: {
     fontSize: 16,
     flexShrink: 1,
@@ -805,6 +834,20 @@ const styles = StyleSheet.create({
   rowTitleCompleted: {
     textDecorationLine: 'line-through',
     opacity: 0.5,
+  },
+  taskTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rowTitleInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 2,
+  },
+  detailChevron: {
+    fontSize: 20,
+    fontWeight: '600',
   },
   dateInput: {
     borderWidth: 1,
