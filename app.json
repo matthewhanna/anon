@@ -8,9 +8,11 @@
     "scheme": "anon",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "info.mhanna.anon"
     },
     "android": {
+      "package": "info.mhanna.anon",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
