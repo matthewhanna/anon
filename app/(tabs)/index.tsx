@@ -1,6 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, SectionList, StyleSheet, TextInput } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  RefreshControl,
+  SectionList,
+  StyleSheet,
+  TextInput,
+  useWindowDimensions,
+} from 'react-native';
 
 import AssigneeSelect from '@/components/AssigneeSelect';
 import DraggableRow from '@/components/DraggableRow';
@@ -34,6 +43,14 @@ export default function RemindersScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const tintColor = Colors[colorScheme].tint;
+  const { width: windowWidth } = useWindowDimensions();
+  const isNarrowDisplay = windowWidth < 600;
+  const columnWidths = {
+    task: isNarrowDisplay ? 90 : 110,
+    due: isNarrowDisplay ? 100 : 130,
+    assignee: isNarrowDisplay ? 100 : 130,
+    delegate: 32,
+  };
   const [locations, setLocations] = useState<Location[]>([]);
   const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -412,7 +429,7 @@ export default function RemindersScreen() {
                 <Text
                   style={[
                     styles.locationButtonText,
-                    isActive ? { color: '#fff' } : { color: tintColor },
+                    isActive ? { color: Colors[colorScheme].background } : { color: tintColor },
                   ]}>
                   {location.name}
                 </Text>
@@ -427,7 +444,7 @@ export default function RemindersScreen() {
             <Pressable
               style={[styles.roomButton, { borderColor: tintColor }, activeRoomId === null && { backgroundColor: tintColor }]}
               onPress={() => setActiveRoomId(null)}>
-              <Text style={activeRoomId === null ? { color: '#fff' } : { color: tintColor }}>All</Text>
+              <Text style={activeRoomId === null ? { color: Colors[colorScheme].background } : { color: tintColor }}>All</Text>
             </Pressable>
           )}
           {rooms.map((room) => {
@@ -437,7 +454,7 @@ export default function RemindersScreen() {
                 key={room.id}
                 style={[styles.roomButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
                 onPress={() => setActiveRoomId(room.id)}>
-                <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{room.name}</Text>
+                <Text style={isActive ? { color: Colors[colorScheme].background } : { color: tintColor }}>{room.name}</Text>
               </Pressable>
             );
           })}
@@ -492,10 +509,10 @@ export default function RemindersScreen() {
         <>
           <View style={styles.headerRow}>
             <View style={styles.colDone} />
-            <View style={styles.colTask} />
-            <View style={styles.colDue} />
-            <View style={styles.colAssignee} />
-            <View style={styles.colDelegate} />
+            <View style={[styles.colTask, { minWidth: columnWidths.task }]} />
+            <View style={[styles.colDue, { minWidth: columnWidths.due }]} />
+            <View style={[styles.colAssignee, { width: columnWidths.assignee }]} />
+            <View style={[styles.colDelegate, { width: columnWidths.delegate }]} />
             <View style={styles.colTrash} />
           </View>
           <SectionList
@@ -506,34 +523,38 @@ export default function RemindersScreen() {
               <>
                 <View style={styles.row}>
                   <View style={[styles.cell, styles.colDone]} />
-                  <View style={[styles.cell, styles.colTask]}>
-                    <TextInput
-                      style={[styles.rowTitle, { color: Colors[colorScheme].text }]}
-                      value={newTitle}
-                      onChangeText={setNewTitle}
-                      placeholder="New reminder"
-                      placeholderTextColor="#888"
-                      editable={!isAdding}
-                      onSubmitEditing={handleAdd}
-                      returnKeyType="done"
-                    />
+                  <View style={styles.taskColumn}>
+                    <View style={[styles.cell, styles.colTask, { minWidth: columnWidths.task }]}>
+                      <TextInput
+                        style={[styles.rowTitle, { color: Colors[colorScheme].text }]}
+                        value={newTitle}
+                        onChangeText={setNewTitle}
+                        placeholder="New reminder"
+                        placeholderTextColor="#888"
+                        editable={!isAdding}
+                        onSubmitEditing={handleAdd}
+                        returnKeyType="done"
+                      />
+                    </View>
+                    <View style={styles.metaRow}>
+                      <View style={[styles.cell, styles.colDue, { minWidth: columnWidths.due }]}>
+                        <TextInput
+                          style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+                          value={newSchedule}
+                          onChangeText={setNewSchedule}
+                          placeholder="When"
+                          placeholderTextColor="#888"
+                          editable={!isAdding}
+                          onSubmitEditing={handleAdd}
+                          returnKeyType="done"
+                        />
+                        {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
+                      </View>
+                      <View style={[styles.cell, styles.colAssignee, { width: columnWidths.assignee }]} />
+                      <View style={[styles.cell, styles.colDelegate, { width: columnWidths.delegate }]} />
+                      <View style={[styles.cell, styles.colTrash]} />
+                    </View>
                   </View>
-                  <View style={[styles.cell, styles.colDue]}>
-                    <TextInput
-                      style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
-                      value={newSchedule}
-                      onChangeText={setNewSchedule}
-                      placeholder="next Tue, every Tue 11a…"
-                      placeholderTextColor="#888"
-                      editable={!isAdding}
-                      onSubmitEditing={handleAdd}
-                      returnKeyType="done"
-                    />
-                    {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
-                  </View>
-                  <View style={[styles.cell, styles.colAssignee]} />
-                  <View style={[styles.cell, styles.colDelegate]} />
-                  <View style={[styles.cell, styles.colTrash]} />
                 </View>
                 {reminders.length === 0 ? <Text style={styles.emptyText}>No reminders yet.</Text> : null}
               </>
@@ -587,64 +608,70 @@ export default function RemindersScreen() {
                       />
                     </Pressable>
                   </View>
-                  <View style={[styles.cell, styles.colTask]}>
-                    <View style={styles.taskTitleRow}>
-                      <TextInput
-                        style={[
-                          styles.rowTitleInput,
-                          { color: Colors[colorScheme].text },
-                          item.completed_at && styles.rowTitleCompleted,
-                        ]}
-                        value={titleDrafts[item.id] ?? item.title}
-                        onChangeText={(text) => setTitleDrafts((current) => ({ ...current, [item.id]: text }))}
-                        onBlur={() => handleTitleCommit(item)}
-                        onSubmitEditing={() => handleTitleCommit(item)}
-                        returnKeyType="done"
-                      />
-                      <Pressable onPress={() => router.push(`/reminder/${item.id}`)} hitSlop={6}>
-                        <Text style={[styles.detailChevron, { color: tintColor }]}>›</Text>
+                  <View style={styles.taskColumn}>
+                    <View style={[styles.cell, styles.colTask, { minWidth: columnWidths.task }]}>
+                      <View style={styles.taskTitleRow}>
+                        <TextInput
+                          style={[
+                            styles.rowTitleInput,
+                            { color: Colors[colorScheme].text },
+                            item.completed_at && styles.rowTitleCompleted,
+                          ]}
+                          value={titleDrafts[item.id] ?? item.title}
+                          onChangeText={(text) => setTitleDrafts((current) => ({ ...current, [item.id]: text }))}
+                          onBlur={() => handleTitleCommit(item)}
+                          onSubmitEditing={() => handleTitleCommit(item)}
+                          returnKeyType="done"
+                        />
+                        <Pressable onPress={() => router.push(`/reminder/${item.id}`)} hitSlop={6}>
+                          <Text style={[styles.detailChevron, { color: tintColor }]}>›</Text>
+                        </Pressable>
+                      </View>
+                      <Pressable onPress={() => setProjectPopupFor(item.id)} hitSlop={4}>
+                        <Text style={styles.rowMeta}>{projectName ?? '+ Project'}</Text>
                       </Pressable>
                     </View>
-                    <Pressable onPress={() => setProjectPopupFor(item.id)} hitSlop={4}>
-                      <Text style={styles.rowMeta}>{projectName ?? '+ Project'}</Text>
-                    </Pressable>
-                  </View>
-                  <View style={[styles.cell, styles.colDue]}>
-                    <TextInput
-                      style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
-                      value={scheduleTexts[item.id] ?? formatDueAt(item.due_at) ?? ''}
-                      onChangeText={(text) => setScheduleTexts((current) => ({ ...current, [item.id]: text }))}
-                      onFocus={() => {
-                        if (scheduleTexts[item.id] === undefined) {
-                          setScheduleTexts((current) => ({ ...current, [item.id]: '' }));
-                        }
-                      }}
-                      placeholder="next Tue, every Tue 11a…"
-                      placeholderTextColor="#888"
-                      onSubmitEditing={() => handleQuickSchedule(item)}
-                      returnKeyType="done"
-                    />
-                    {recurrenceLabel ? <Text style={styles.rowMeta}>{recurrenceLabel}</Text> : null}
-                    {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
-                  </View>
-                  <View style={[styles.cell, styles.colAssignee]}>
-                    <AssigneeSelect
-                      value={item.owner_id}
-                      options={owners}
-                      onChange={(ownerId) => handleSetOwner(item, ownerId)}
-                    />
-                  </View>
-                  <View style={[styles.cell, styles.colDelegate]}>
-                    <Pressable
-                      style={[styles.delegateButton, { backgroundColor: tintColor }]}
-                      onPress={() => setAssigneePopupFor(item.id)}>
-                      <Text style={styles.delegateButtonText}>Delegate</Text>
-                    </Pressable>
-                  </View>
-                  <View style={[styles.cell, styles.colTrash]}>
-                    <Pressable onPress={() => handleDelete(item)} hitSlop={8}>
-                      <Text style={styles.trashIcon}>🗑</Text>
-                    </Pressable>
+                    <View style={styles.metaRow}>
+                      <View style={[styles.cell, styles.colDue, { minWidth: columnWidths.due }]}>
+                        <TextInput
+                          style={[styles.dateInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
+                          value={scheduleTexts[item.id] ?? formatDueAt(item.due_at) ?? ''}
+                          onChangeText={(text) => setScheduleTexts((current) => ({ ...current, [item.id]: text }))}
+                          onFocus={() => {
+                            if (scheduleTexts[item.id] === undefined) {
+                              setScheduleTexts((current) => ({ ...current, [item.id]: '' }));
+                            }
+                          }}
+                          placeholder="When"
+                          placeholderTextColor="#888"
+                          onSubmitEditing={() => handleQuickSchedule(item)}
+                          returnKeyType="done"
+                        />
+                        {recurrenceLabel ? <Text style={styles.rowMeta}>{recurrenceLabel}</Text> : null}
+                        {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
+                      </View>
+                      <View style={[styles.cell, styles.colAssignee, { width: columnWidths.assignee }]}>
+                        <AssigneeSelect
+                          value={item.owner_id}
+                          options={owners}
+                          onChange={(ownerId) => handleSetOwner(item, ownerId)}
+                        />
+                      </View>
+                      <View style={[styles.cell, styles.colDelegate, { width: columnWidths.delegate }]}>
+                        <Pressable
+                          style={styles.delegateButton}
+                          onPress={() => setAssigneePopupFor(item.id)}
+                          hitSlop={8}
+                          accessibilityLabel="Delegate">
+                          <Text style={styles.delegateButtonText}>🤝</Text>
+                        </Pressable>
+                      </View>
+                      <View style={[styles.cell, styles.colTrash]}>
+                        <Pressable onPress={() => handleDelete(item)} hitSlop={8}>
+                          <Text style={styles.trashIcon}>🗑</Text>
+                        </Pressable>
+                      </View>
+                    </View>
                   </View>
                 </View>
                 </DraggableRow>
@@ -790,11 +817,24 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#8884',
+  },
+  taskColumn: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
   },
   cell: {
     justifyContent: 'center',
@@ -805,18 +845,12 @@ const styles = StyleSheet.create({
   },
   colTask: {
     flex: 3,
-    minWidth: 110,
   },
   colDue: {
     flex: 2,
-    minWidth: 130,
   },
-  colAssignee: {
-    width: 130,
-  },
-  colDelegate: {
-    width: 84,
-  },
+  colAssignee: {},
+  colDelegate: {},
   colTrash: {
     width: 32,
     alignItems: 'center',
@@ -873,15 +907,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   delegateButton: {
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
     alignItems: 'center',
   },
   delegateButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 12,
+    fontSize: 18,
   },
   modalBackdrop: {
     flex: 1,

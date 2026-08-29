@@ -70,9 +70,11 @@ export default function SignInScreen() {
           onPress={handleVerifyCode}
           disabled={isSubmitting}>
           {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={Colors[colorScheme].background} />
           ) : (
-            <Text style={styles.buttonText}>Verify</Text>
+            <Text style={[styles.buttonText, { color: Colors[colorScheme].background }]}>
+              Verify
+            </Text>
           )}
         </Pressable>
         <Pressable
@@ -109,9 +111,11 @@ export default function SignInScreen() {
         onPress={handleSendCode}
         disabled={isSubmitting}>
         {isSubmitting ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={Colors[colorScheme].background} />
         ) : (
-          <Text style={styles.buttonText}>Send sign-in code</Text>
+          <Text style={[styles.buttonText, { color: Colors[colorScheme].background }]}>
+            Send sign-in code
+          </Text>
         )}
       </Pressable>
     </View>
@@ -152,7 +156,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: {
-    color: '#fff',
     fontWeight: '600',
     fontSize: 16,
   },

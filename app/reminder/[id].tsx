@@ -165,7 +165,7 @@ export default function ReminderEditScreen() {
                   key={member.id}
                   style={[styles.optionButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
                   onPress={() => handleAssign(member.id)}>
-                  <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{member.name}</Text>
+                  <Text style={isActive ? { color: Colors[colorScheme].background } : { color: tintColor }}>{member.name}</Text>
                 </Pressable>
               );
             })}
@@ -212,7 +212,7 @@ export default function ReminderEditScreen() {
                     setFreq(option.value);
                     if (option.value !== 'weekly') setWeekday(null);
                   }}>
-                  <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{option.label}</Text>
+                  <Text style={isActive ? { color: Colors[colorScheme].background } : { color: tintColor }}>{option.label}</Text>
                 </Pressable>
               );
             })}
@@ -225,7 +225,7 @@ export default function ReminderEditScreen() {
                 <Pressable
                   style={[styles.optionButton, { borderColor: tintColor }, weekday === null && { backgroundColor: tintColor }]}
                   onPress={() => setWeekday(null)}>
-                  <Text style={weekday === null ? { color: '#fff' } : { color: tintColor }}>Any day</Text>
+                  <Text style={weekday === null ? { color: Colors[colorScheme].background } : { color: tintColor }}>Any day</Text>
                 </Pressable>
                 {WEEKDAY_NAMES.map((name, index) => {
                   const isActive = weekday === index;
@@ -234,7 +234,7 @@ export default function ReminderEditScreen() {
                       key={name}
                       style={[styles.optionButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
                       onPress={() => setWeekday(index)}>
-                      <Text style={isActive ? { color: '#fff' } : { color: tintColor }}>{name.slice(0, 3)}</Text>
+                      <Text style={isActive ? { color: Colors[colorScheme].background } : { color: tintColor }}>{name.slice(0, 3)}</Text>
                     </Pressable>
                   );
                 })}
@@ -247,7 +247,7 @@ export default function ReminderEditScreen() {
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
       <Pressable style={[styles.saveButton, { backgroundColor: tintColor }]} onPress={handleSave} disabled={isSaving}>
-        <Text style={styles.saveButtonText}>Save</Text>
+        <Text style={[styles.saveButtonText, { color: Colors[colorScheme].background }]}>Save</Text>
       </Pressable>
 
       {reminder.due_at && (
@@ -324,7 +324,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   saveButtonText: {
-    color: '#fff',
     fontWeight: '600',
     fontSize: 16,
   },
