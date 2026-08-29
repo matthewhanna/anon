@@ -2,6 +2,13 @@
 .branches
 .temp
 
+# Migrations are treated as ephemeral pre-release -- schema.sql is the
+# source of truth for the schema. Migration files still live on disk
+# (needed locally for `supabase db push`/migration history bookkeeping)
+# but aren't committed. Revisit this once there's a live release with
+# real user data, where incremental migrations start to matter.
+migrations/
+
 # dotenvx
 .env.keys
 .env.local
