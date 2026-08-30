@@ -3,8 +3,9 @@ import { useLocales } from 'expo-localization';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, TextInput } from 'react-native';
-import MapView, { Circle, Marker, type Region } from 'react-native-maps';
 
+import MapPicker from '@/components/MapPicker';
+import type { MapPickerHandle } from '@/components/MapPicker.types';
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -31,18 +32,6 @@ import {
   unitSystemFrom,
 } from '@/lib/units';
 
-const FALLBACK_REGION: Region = {
-  latitude: 39.5,
-  longitude: -98.35,
-  latitudeDelta: 60,
-  longitudeDelta: 60,
-};
-
-function regionAround(c: Coords, radiusM: number): Region {
-  const delta = Math.max(0.004, (radiusM / 111_000) * 6);
-  return { latitude: c.latitude, longitude: c.longitude, latitudeDelta: delta, longitudeDelta: delta };
-}
-
 export default function LocationEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNew = id === 'new';
@@ -50,7 +39,7 @@ export default function LocationEditScreen() {
   const scheme = useColorScheme();
   const accent = Colors[scheme].accent;
   const system = unitSystemFrom(useLocales()[0]?.measurementSystem);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<MapPickerHandle>(null);
 
   const slider = radiusSliderConfig(system);
   const [name, setName] = useState('');
@@ -58,7 +47,6 @@ export default function LocationEditScreen() {
   // Slider works in the display unit; meters is derived for storage/circle/map.
   const [radiusDisplay, setRadiusDisplay] = useState(() => metersToDisplay(DEFAULT_RADIUS_M, system));
   const radiusM = displayToMeters(radiusDisplay, system);
-  const [region, setRegion] = useState<Region | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -91,7 +79,6 @@ export default function LocationEditScreen() {
 
       setRadiusDisplay(metersToDisplay(startRadius, system));
       setPoint(startPoint);
-      setRegion(startPoint ? regionAround(startPoint, startRadius) : FALLBACK_REGION);
       setLoading(false);
     })();
   }, [id, isNew]);
@@ -112,9 +99,7 @@ export default function LocationEditScreen() {
     try {
       const c = await getCurrentCoords();
       setPoint(c);
-      const r = regionAround(c, radiusM);
-      setRegion(r);
-      mapRef.current?.animateToRegion(r, 350);
+      mapRef.current?.centerOn(c);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read location');
     } finally {
@@ -155,7 +140,7 @@ export default function LocationEditScreen() {
     }
   }
 
-  if (loading || !region) {
+  if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -178,20 +163,14 @@ export default function LocationEditScreen() {
         style={[styles.nameInput, { color: Colors[scheme].text, borderColor }]}
       />
 
-      <MapView
+      <MapPicker
         ref={mapRef}
+        point={point}
+        radiusM={radiusM}
+        strokeColor={accent}
+        onPointChange={setPoint}
         style={styles.map}
-        initialRegion={region}
-        onRegionChangeComplete={setRegion}
-        onPress={(e) => setPoint(e.nativeEvent.coordinate)}
-      >
-        {point ? (
-          <Marker draggable coordinate={point} onDragEnd={(e) => setPoint(e.nativeEvent.coordinate)} />
-        ) : null}
-        {point ? (
-          <Circle center={point} radius={radiusM} strokeColor={accent} fillColor={`${accent}22`} />
-        ) : null}
-      </MapView>
+      />
 
       <View style={styles.controls}>
         {point ? (
@@ -219,9 +198,12 @@ export default function LocationEditScreen() {
           <Pressable
             onPress={useCurrentLocation}
             disabled={locating}
-            style={[styles.ghostBtn, { borderColor }]}
-          >
-            {locating ? <ActivityIndicator /> : <Text style={{ color: accent }}>Use current location</Text>}
+            style={[styles.ghostBtn, { borderColor }]}>
+            {locating ? (
+              <ActivityIndicator />
+            ) : (
+              <Text style={{ color: accent }}>Use current location</Text>
+            )}
           </Pressable>
         </View>
 
