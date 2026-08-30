@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, TextInput } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
@@ -51,6 +51,7 @@ export default function SignInScreen() {
   if (step === 'code') {
     return (
       <View style={styles.container}>
+        <Image source={require('../assets/images/logo.png')} style={styles.logo} />
         <Text style={styles.title}>Enter your code</Text>
         <Text style={styles.subtitle}>We sent a sign-in code to {email.trim()}.</Text>
         <TextInput
@@ -91,6 +92,7 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.container}>
+      <Image source={require('../assets/images/logo.png')} style={styles.logo} />
       <Text style={styles.title}>Sign in</Text>
       <Text style={styles.subtitle}>Enter your email and we'll send you a sign-in code.</Text>
       <TextInput
@@ -129,6 +131,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
     gap: 12,
+  },
+  logo: {
+    width: 88,
+    height: 88,
+    marginBottom: 4,
   },
   title: {
     fontSize: 24,
