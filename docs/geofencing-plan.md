@@ -1,8 +1,27 @@
 # Geofencing plan
 
-**Status:** planning — not started
+**Status:** in progress — building the foreground-location layer first
 **Goal:** when the user arrives at one of their saved locations, notify them of the
 pending reminders tied to that location ("remind me when I get home").
+
+## Sequencing
+
+Background geofencing is deferred. We build the **foreground-location layer first**
+— it needs only "While Using" permission, no background mode, no headless task, no
+notification plumbing, and it produces the coordinate data geofencing depends on.
+
+- **Phase 0a — capture coordinates.** Settings UI: per saved location, a "Use
+  current location" button (`getCurrentPositionAsync`, foreground permission) plus
+  an editable radius. Writes `latitude` / `longitude` / `radius_m` on `locations`.
+- **Phase 0b — foreground list switching.** On the reminders screen, an action
+  (and/or on-open check) that reads the current position and selects the active
+  location whose radius contains it. This is the original stated purpose of the
+  `locations` table.
+- **Phase 1+ below** (background geofencing + arrival notifications) builds on 0a/0b
+  once the coordinate data and the location-matching helper exist.
+
+Installed so far: `expo-location` (`~57.0.14`); app.json has the `expo-location`
+plugin configured foreground-only.
 
 ---
 
@@ -89,7 +108,8 @@ New migration, then regenerate `supabase/schema.sql` (migration → `supabase db
 ## Permissions UX (Settings tab)
 
 1. Per location: **"Use current location"** button (`getCurrentPositionAsync`,
-   foreground permission) + radius input (default 150 m). Map picker is v2.
+   foreground permission) + radius input (default 250 ft / 76 m, shown in the
+   locale's unit). Map picker is v2.
 2. **"Notify me at my locations"** master toggle → drives the
    foreground → background ("Always") permission escalation. iOS prompts for the
    upgrade separately; handle "While Using" / denied gracefully with a deep link to

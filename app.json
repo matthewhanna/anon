@@ -39,7 +39,15 @@
       "expo-sqlite",
       "expo-font",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Anon uses your location to fill in a saved place's coordinates and to switch to the right list when you arrive."
+        }
+      ],
+      "./plugins/withGradleJavaHome",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true

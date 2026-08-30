@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -17,6 +17,7 @@ import DropZone from '@/components/DropZone';
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { getCurrentCoords, getForegroundPermission, nearestWithin } from '@/lib/location';
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
 import { listAssignableOwners, listOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
@@ -41,6 +42,7 @@ const NO_PROJECT_SECTION_ID = '__none__';
 
 export default function RemindersScreen() {
   const router = useRouter();
+  const didAutoLocateRef = useRef(false);
   const colorScheme = useColorScheme();
   const tintColor = Colors[colorScheme].tint;
   const { width: windowWidth } = useWindowDimensions();
@@ -86,6 +88,22 @@ export default function RemindersScreen() {
       }
       setLocations(data ?? []);
       setActiveLocationId((current) => current ?? data?.[0]?.id ?? null);
+
+      // Best-effort: on open, jump to the list for wherever we are. Only if
+      // location permission was already granted — never prompts from here.
+      if (!didAutoLocateRef.current && (data?.length ?? 0) > 0) {
+        didAutoLocateRef.current = true;
+        (async () => {
+          try {
+            if ((await getForegroundPermission()) !== 'granted') return;
+            const coords = await getCurrentCoords();
+            const match = nearestWithin(data as Location[], coords);
+            if (match) setActiveLocationId(match.item.id);
+          } catch {
+            // location detection is best-effort
+          }
+        })();
+      }
     });
     listOwners().then(({ data, error }) => {
       if (!error) {
