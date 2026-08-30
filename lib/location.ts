@@ -8,8 +8,8 @@ export type Coords = { latitude: number; longitude: number };
 export type LocationPermission = 'granted' | 'denied';
 
 export const DEFAULT_RADIUS_M = 76; // 250 ft
-export const MIN_RADIUS_M = 50;
-export const MAX_RADIUS_M = 5000;
+export const MIN_RADIUS_M = 46; // ~150 ft
+export const MAX_RADIUS_M = 305; // ~1000 ft
 
 export async function getForegroundPermission(): Promise<LocationPermission> {
   const res = await Location.getForegroundPermissionsAsync();

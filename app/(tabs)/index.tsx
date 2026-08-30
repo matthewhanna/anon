@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Modal,
   Pressable,
   RefreshControl,
@@ -43,6 +44,8 @@ const NO_PROJECT_SECTION_ID = '__none__';
 export default function RemindersScreen() {
   const router = useRouter();
   const didAutoLocateRef = useRef(false);
+  const locationsRef = useRef<Location[]>([]);
+  const lastLocateAtRef = useRef(0);
   const colorScheme = useColorScheme();
   const tintColor = Colors[colorScheme].tint;
   const { width: windowWidth } = useWindowDimensions();
@@ -87,22 +90,12 @@ export default function RemindersScreen() {
         return;
       }
       setLocations(data ?? []);
+      locationsRef.current = data ?? [];
       setActiveLocationId((current) => current ?? data?.[0]?.id ?? null);
 
-      // Best-effort: on open, jump to the list for wherever we are. Only if
-      // location permission was already granted — never prompts from here.
       if (!didAutoLocateRef.current && (data?.length ?? 0) > 0) {
         didAutoLocateRef.current = true;
-        (async () => {
-          try {
-            if ((await getForegroundPermission()) !== 'granted') return;
-            const coords = await getCurrentCoords();
-            const match = nearestWithin(data as Location[], coords);
-            if (match) setActiveLocationId(match.item.id);
-          } catch {
-            // location detection is best-effort
-          }
-        })();
+        void syncActiveToPosition({ force: true });
       }
     });
     listOwners().then(({ data, error }) => {
@@ -121,6 +114,36 @@ export default function RemindersScreen() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    locationsRef.current = locations;
+  }, [locations]);
+
+  // Point the active list at whichever saved location we're currently inside.
+  // Never prompts (only runs when location permission is already granted) and is
+  // throttled so repeated foregrounding doesn't hammer the GPS.
+  const syncActiveToPosition = useCallback(async (opts?: { force?: boolean }) => {
+    const locs = locationsRef.current;
+    if (locs.length === 0) return;
+    if (!opts?.force && Date.now() - lastLocateAtRef.current < 30_000) return;
+    try {
+      if ((await getForegroundPermission()) !== 'granted') return;
+      lastLocateAtRef.current = Date.now();
+      const coords = await getCurrentCoords();
+      const match = nearestWithin(locs, coords);
+      if (match) setActiveLocationId(match.item.id);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  // Re-check when the app returns to the foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void syncActiveToPosition();
+    });
+    return () => sub.remove();
+  }, [syncActiveToPosition]);
 
   const load = useCallback(async (locationId: string, roomId: string | null) => {
     const { data, error } = await listReminders(locationId, roomId);

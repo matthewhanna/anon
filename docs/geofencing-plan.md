@@ -10,13 +10,18 @@ Background geofencing is deferred. We build the **foreground-location layer firs
 — it needs only "While Using" permission, no background mode, no headless task, no
 notification plumbing, and it produces the coordinate data geofencing depends on.
 
-- **Phase 0a — capture coordinates.** Settings UI: per saved location, a "Use
-  current location" button (`getCurrentPositionAsync`, foreground permission) plus
-  an editable radius. Writes `latitude` / `longitude` / `radius_m` on `locations`.
-- **Phase 0b — foreground list switching.** On the reminders screen, an action
-  (and/or on-open check) that reads the current position and selects the active
-  location whose radius contains it. This is the original stated purpose of the
-  `locations` table.
+- **Phase 0a — define places + capture coordinates.** Settings tab is a CRUD list
+  of locations (name, geofence summary, Edit / Delete, "Add location"). Edit/Add
+  push to `app/location/[id].tsx` (`id === "new"` = create): a full-screen
+  `react-native-maps` picker — draggable `Marker`, live `Circle`, radius `Slider`
+  (`@react-native-community/slider`), "Use current location", Save. Writes `name`
+  + `latitude` / `longitude` / `radius_m`. **Android needs a Google Maps API key**
+  (`android.config.googleMaps.apiKey`); iOS uses Apple Maps, no key.
+- **Phase 0b — foreground list switching.** The reminders screen selects the
+  active location whose radius contains the current position: once on mount, and
+  again whenever the app returns to the foreground (`AppState` → `active`,
+  throttled 30 s). Permission-gated — never prompts from this screen. True
+  transitions while the app is closed need Phase 1 background geofencing.
 - **Phase 1+ below** (background geofencing + arrival notifications) builds on 0a/0b
   once the coordinate data and the location-matching helper exist.
 
@@ -105,16 +110,15 @@ New migration, then regenerate `supabase/schema.sql` (migration → `supabase db
 
 ---
 
-## Permissions UX (Settings tab)
+## Permissions UX
 
-1. Per location: **"Use current location"** button (`getCurrentPositionAsync`,
-   foreground permission) + radius input (default 250 ft / 76 m, shown in the
-   locale's unit). Map picker is v2.
-2. **"Notify me at my locations"** master toggle → drives the
+1. Foreground ("While Using") is requested on the map picker screen the first time
+   "Use current location" is tapped; denied → Alert with a deep link to system
+   Settings. Radius default 250 ft / 76 m, shown in the locale's unit.
+2. **"Notify me at my locations"** master toggle (Phase 1) → drives the
    foreground → background ("Always") permission escalation. iOS prompts for the
-   upgrade separately; handle "While Using" / denied gracefully with a deep link to
-   system Settings.
-3. Show per-location fence status (set / not set / active).
+   upgrade separately; handle "While Using" / denied gracefully.
+3. Settings list shows each place's geofence status (set + radius / none).
 
 ---
 

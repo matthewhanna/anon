@@ -27,6 +27,16 @@ export function displayToMeters(value: number, system: UnitSystem): number {
   return Math.round(system === 'imperial' ? value * M_PER_FT : value);
 }
 
+/** Label for a value already in display units. */
+export function formatRadiusDisplay(value: number, system: UnitSystem): string {
+  return `${Math.round(value)} ${radiusUnitLabel(system)}`;
+}
+
 export function formatRadius(meters: number, system: UnitSystem): string {
-  return `${metersToDisplay(meters, system)} ${radiusUnitLabel(system)}`;
+  return formatRadiusDisplay(metersToDisplay(meters, system), system);
+}
+
+/** Slider bounds in the display unit: 150–1000 ft, or 50–300 m. */
+export function radiusSliderConfig(system: UnitSystem): { min: number; max: number; step: number } {
+  return system === 'imperial' ? { min: 150, max: 1000, step: 10 } : { min: 50, max: 300, step: 10 };
 }

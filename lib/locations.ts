@@ -19,6 +19,10 @@ export async function listLocations() {
   return supabase.from('locations').select('*').order('created_at', { ascending: true }).returns<Location[]>();
 }
 
+export async function getLocation(id: string) {
+  return supabase.from('locations').select('*').eq('id', id).single<Location>();
+}
+
 export async function createLocation(name: string) {
   return supabase.from('locations').insert({ name: name.trim() }).select().single<Location>();
 }
