@@ -8,6 +8,9 @@ export type ParsedSchedule = {
   recurrenceWeekday: number | null;
 };
 
+export const SCHEDULE_HELP =
+  'Couldn\'t understand that — try "8/25/26", "next Tue", or "every Tue at 11a".';
+
 const RECURRING_PREFIX = /^\s*(every|each)\b/i;
 const FREQ_KEYWORDS: { regex: RegExp; freq: RecurrenceFreq }[] = [
   { regex: /\bdaily\b|\bday\b/i, freq: 'daily' },
