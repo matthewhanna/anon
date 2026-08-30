@@ -85,7 +85,7 @@ export default function LocationSheet() {
             style={styles.manage}
             onPress={() => {
               setPickerOpen(false);
-              router.push('/two');
+              router.push('/settings');
             }}>
             <Text style={{ color: tint }}>Manage locations &amp; rooms</Text>
           </Pressable>
