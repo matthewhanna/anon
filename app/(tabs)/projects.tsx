@@ -5,18 +5,23 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput 
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { useLocationHeader } from '@/components/useLocationHeader';
+import { useLocationContext } from '@/lib/location-context';
 import {
   createProject,
   deleteProject,
   listProjectLocationNames,
-  listProjects,
+  listProjectsForLocation,
   moveProject,
+  setProjectLocations,
   type Project,
 } from '@/lib/projects';
 
 export default function ProjectsScreen() {
   const scheme = useColorScheme();
   const router = useRouter();
+  const { activeLocationId } = useLocationContext();
+  useLocationHeader();
   const accent = Colors[scheme].accent;
   const border = scheme === 'dark' ? '#2a2a2a' : '#e2e2e2';
   const muted = scheme === 'dark' ? '#9aa0a6' : '#6b7280';
@@ -29,35 +34,44 @@ export default function ProjectsScreen() {
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
-    Promise.all([listProjects(), listProjectLocationNames()]).then(([res, names]) => {
-      if (res.error) setError(res.error.message);
-      else {
-        setError(null);
-        setProjects(res.data ?? []);
-      }
-      setLocNames(names);
+    if (!activeLocationId) {
+      setProjects([]);
       setLoading(false);
-    });
-  }, []);
+      return;
+    }
+    Promise.all([listProjectsForLocation(activeLocationId), listProjectLocationNames()]).then(
+      ([res, names]) => {
+        if (res.error) setError(res.error.message);
+        else {
+          setError(null);
+          setProjects(res.data ?? []);
+        }
+        setLocNames(names);
+        setLoading(false);
+      }
+    );
+  }, [activeLocationId]);
 
   useFocusEffect(useCallback(() => void load(), [load]));
 
   async function reorder(id: string, direction: 'up' | 'down') {
     const result = await moveProject(projects, id, direction);
-    if (result) {
-      const { data } = await listProjects();
+    if (result && activeLocationId) {
+      const { data } = await listProjectsForLocation(activeLocationId);
       setProjects(data ?? []);
     }
   }
 
   async function add() {
     const name = newName.trim();
-    if (!name || adding) return;
+    if (!name || adding || !activeLocationId) return;
     setAdding(true);
     const { data, error: addError } = await createProject(name);
     if (addError) setError(addError.message);
     else if (data) {
+      await setProjectLocations(data.id, [activeLocationId]);
       setProjects((prev) => [...prev, data]);
+      setLocNames((prev) => ({ ...prev, [data.id]: [] }));
       setNewName('');
     }
     setAdding(false);
@@ -81,8 +95,8 @@ export default function ProjectsScreen() {
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={[styles.hint, { color: muted }]}>
-        Projects group tasks. Assign each project one or more locations — it then appears on the
-        Tasks list for those places.
+        Projects assigned to the location in the header. New projects are added here; open one to
+        assign it more locations. Deleting a project keeps its tasks.
       </Text>
 
       {loading ? (

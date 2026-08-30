@@ -8,6 +8,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/lib/auth-context';
 import { DEFAULT_RADIUS_M } from '@/lib/location';
+import { useLocationContext } from '@/lib/location-context';
 import { deleteLocation, listLocations, type Location } from '@/lib/locations';
 import { createRoom, deleteRoom, listRooms, renameRoom, type Room } from '@/lib/rooms';
 import { formatRadius, unitSystemFrom } from '@/lib/units';
@@ -19,6 +20,7 @@ export default function SettingsScreen() {
   const accent = Colors[scheme].accent;
   const system = unitSystemFrom(useLocales()[0]?.measurementSystem);
 
+  const { reloadLocations } = useLocationContext();
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,12 @@ export default function SettingsScreen() {
   }, []);
 
   // Reload on focus so edits made on the picker screen show when we return.
-  useFocusEffect(useCallback(() => void load(), [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      reloadLocations();
+    }, [load, reloadLocations])
+  );
 
   function toggleRooms(locId: string) {
     setNewRoom('');
@@ -101,7 +108,10 @@ export default function SettingsScreen() {
           onPress: async () => {
             const { error: delError } = await deleteLocation(loc.id);
             if (delError) setError(delError.message);
-            else setLocations((prev) => prev.filter((l) => l.id !== loc.id));
+            else {
+              setLocations((prev) => prev.filter((l) => l.id !== loc.id));
+              reloadLocations();
+            }
           },
         },
       ]

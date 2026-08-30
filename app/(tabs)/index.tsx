@@ -1,8 +1,7 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  AppState,
   Modal,
   Pressable,
   RefreshControl,
@@ -18,8 +17,9 @@ import DropZone from '@/components/DropZone';
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { getCurrentCoords, getForegroundPermission, nearestWithin } from '@/lib/location';
-import { ensureDefaultLocations, type Location } from '@/lib/locations';
+import { useLocationHeader } from '@/components/useLocationHeader';
+import { useAuth } from '@/lib/auth-context';
+import { useLocationContext } from '@/lib/location-context';
 import { listAssignableOwners, listOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
 import { listProjectsForLocation, moveProject, type Project } from '@/lib/projects';
@@ -37,15 +37,14 @@ import {
   updateReminderTitle,
   type Reminder,
 } from '@/lib/reminders';
-import { createRoom, listRooms, type Room } from '@/lib/rooms';
 
 const NO_PROJECT_SECTION_ID = '__none__';
 
 export default function RemindersScreen() {
   const router = useRouter();
-  const didAutoLocateRef = useRef(false);
-  const locationsRef = useRef<Location[]>([]);
-  const lastLocateAtRef = useRef(0);
+  const { session } = useAuth();
+  const { rooms, activeLocationId, activeRoomId } = useLocationContext();
+  useLocationHeader();
   const colorScheme = useColorScheme();
   const tintColor = Colors[colorScheme].tint;
   const { width: windowWidth } = useWindowDimensions();
@@ -56,12 +55,7 @@ export default function RemindersScreen() {
     assignee: isNarrowDisplay ? 100 : 130,
     delegate: 32,
   };
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const [isAddingRoom, setIsAddingRoom] = useState(false);
-  const [newRoomName, setNewRoomName] = useState('');
+  const [newAssigneeId, setNewAssigneeId] = useState<string | null>(null);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -81,21 +75,6 @@ export default function RemindersScreen() {
   const [assigneePopupFor, setAssigneePopupFor] = useState<string | null>(null);
 
   useEffect(() => {
-    ensureDefaultLocations().then(({ data, error }) => {
-      if (error) {
-        setErrorMessage(error.message);
-        setIsLoading(false);
-        return;
-      }
-      setLocations(data ?? []);
-      locationsRef.current = data ?? [];
-      setActiveLocationId((current) => current ?? data?.[0]?.id ?? null);
-
-      if (!didAutoLocateRef.current && (data?.length ?? 0) > 0) {
-        didAutoLocateRef.current = true;
-        void syncActiveToPosition({ force: true });
-      }
-    });
     listOwners().then(({ data, error }) => {
       if (!error) {
         setOwners(data ?? []);
@@ -107,36 +86,6 @@ export default function RemindersScreen() {
       }
     });
   }, []);
-
-  useEffect(() => {
-    locationsRef.current = locations;
-  }, [locations]);
-
-  // Point the active list at whichever saved location we're currently inside.
-  // Never prompts (only runs when location permission is already granted) and is
-  // throttled so repeated foregrounding doesn't hammer the GPS.
-  const syncActiveToPosition = useCallback(async (opts?: { force?: boolean }) => {
-    const locs = locationsRef.current;
-    if (locs.length === 0) return;
-    if (!opts?.force && Date.now() - lastLocateAtRef.current < 30_000) return;
-    try {
-      if ((await getForegroundPermission()) !== 'granted') return;
-      lastLocateAtRef.current = Date.now();
-      const coords = await getCurrentCoords();
-      const match = nearestWithin(locs, coords);
-      if (match) setActiveLocationId(match.item.id);
-    } catch {
-      // best-effort
-    }
-  }, []);
-
-  // Re-check when the app returns to the foreground.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void syncActiveToPosition();
-    });
-    return () => sub.remove();
-  }, [syncActiveToPosition]);
 
   const load = useCallback(async (locationId: string, roomId: string | null) => {
     const { data, error } = await listReminders(locationId, roomId);
@@ -152,16 +101,6 @@ export default function RemindersScreen() {
     if (!activeLocationId) {
       return;
     }
-    setActiveRoomId(null);
-    setIsAddingRoom(false);
-    setNewRoomName('');
-    listRooms(activeLocationId).then(({ data, error }) => {
-      if (error) {
-        setErrorMessage(error.message);
-      } else {
-        setRooms(data ?? []);
-      }
-    });
     listProjectsForLocation(activeLocationId).then(({ data, error }) => {
       if (!error) {
         setProjects(data ?? []);
@@ -186,22 +125,6 @@ export default function RemindersScreen() {
     setIsRefreshing(false);
   }
 
-  async function handleAddRoom() {
-    const name = newRoomName.trim();
-    if (!name || !activeLocationId) {
-      return;
-    }
-    const { data, error } = await createRoom(activeLocationId, name);
-    if (error) {
-      setErrorMessage(error.message);
-    } else if (data) {
-      setRooms((current) => [...current, data]);
-      setActiveRoomId(data.id);
-      setNewRoomName('');
-      setIsAddingRoom(false);
-    }
-  }
-
   async function handleAdd() {
     const title = newTitle.trim();
     if (!title || !activeLocationId) {
@@ -220,6 +143,13 @@ export default function RemindersScreen() {
     }
     setNewTitle('');
     let created = data;
+
+    if (newAssigneeId && newAssigneeId !== created.assignee_id) {
+      const { data: reassigned, error: assignError } = await setReminderAssignee(created.id, newAssigneeId);
+      if (assignError) setErrorMessage(assignError.message);
+      else if (reassigned) created = reassigned;
+    }
+    setNewAssigneeId(null);
 
     const scheduleText = newSchedule.trim();
     if (scheduleText) {
@@ -435,74 +365,10 @@ export default function RemindersScreen() {
     setCollapsedProjectIds((current) => ({ ...current, [id]: !current[id] }));
   }
 
+  const myOwnerId = owners.find((o) => o.auth_user_id === session?.user?.id)?.id ?? null;
+
   return (
     <View style={styles.container}>
-      {locations.length > 0 && (
-        <View style={styles.locationRow}>
-          {locations.map((location) => {
-            const isActive = location.id === activeLocationId;
-            return (
-              <Pressable
-                key={location.id}
-                style={[
-                  styles.locationButton,
-                  { borderColor: tintColor },
-                  isActive && { backgroundColor: tintColor },
-                ]}
-                onPress={() => setActiveLocationId(location.id)}>
-                <Text
-                  style={[
-                    styles.locationButtonText,
-                    isActive ? { color: Colors[colorScheme].background } : { color: tintColor },
-                  ]}>
-                  {location.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-      {activeLocationId && (
-        <View style={styles.roomRow}>
-          {rooms.length > 0 && (
-            <Pressable
-              style={[styles.roomButton, { borderColor: tintColor }, activeRoomId === null && { backgroundColor: tintColor }]}
-              onPress={() => setActiveRoomId(null)}>
-              <Text style={activeRoomId === null ? { color: Colors[colorScheme].background } : { color: tintColor }}>All</Text>
-            </Pressable>
-          )}
-          {rooms.map((room) => {
-            const isActive = room.id === activeRoomId;
-            return (
-              <Pressable
-                key={room.id}
-                style={[styles.roomButton, { borderColor: tintColor }, isActive && { backgroundColor: tintColor }]}
-                onPress={() => setActiveRoomId(room.id)}>
-                <Text style={isActive ? { color: Colors[colorScheme].background } : { color: tintColor }}>{room.name}</Text>
-              </Pressable>
-            );
-          })}
-          {isAddingRoom ? (
-            <TextInput
-              style={[styles.smallQuickInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
-              value={newRoomName}
-              onChangeText={setNewRoomName}
-              placeholder="Room name"
-              placeholderTextColor="#888"
-              onSubmitEditing={handleAddRoom}
-              onBlur={() => {
-                if (!newRoomName.trim()) setIsAddingRoom(false);
-              }}
-              returnKeyType="done"
-              autoFocus
-            />
-          ) : (
-            <Pressable style={[styles.roomButton, { borderColor: tintColor }]} onPress={() => setIsAddingRoom(true)}>
-              <Text style={{ color: tintColor }}>+ Room</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       {isLoading ? (
         <View style={styles.centered}>
@@ -510,14 +376,6 @@ export default function RemindersScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.headerRow}>
-            <View style={styles.colDone} />
-            <View style={[styles.colTask, { minWidth: columnWidths.task }]} />
-            <View style={[styles.colDue, { minWidth: columnWidths.due }]} />
-            <View style={[styles.colAssignee, { width: columnWidths.assignee }]} />
-            <View style={[styles.colDelegate, { width: columnWidths.delegate }]} />
-            <View style={styles.colTrash} />
-          </View>
           <SectionList
             sections={sections}
             keyExtractor={(item) => item.id}
@@ -525,7 +383,6 @@ export default function RemindersScreen() {
             ListHeaderComponent={
               <>
                 <View style={styles.row}>
-                  <View style={[styles.cell, styles.colDone]} />
                   <View style={styles.taskColumn}>
                     <View style={[styles.cell, styles.colTask, { minWidth: columnWidths.task }]}>
                       <TextInput
@@ -553,7 +410,15 @@ export default function RemindersScreen() {
                         />
                         {newScheduleError ? <Text style={styles.error}>{newScheduleError}</Text> : null}
                       </View>
-                      <View style={[styles.cell, styles.colAssignee, { width: columnWidths.assignee }]} />
+                      <View style={[styles.cell, styles.colAssignee, { width: columnWidths.assignee }]}>
+                        {assignableOwners.length > 0 && (myOwnerId || newAssigneeId) ? (
+                          <AssigneeSelect
+                            value={newAssigneeId ?? myOwnerId ?? ''}
+                            options={assignableOwners}
+                            onChange={setNewAssigneeId}
+                          />
+                        ) : null}
+                      </View>
                       <View style={[styles.cell, styles.colDelegate, { width: columnWidths.delegate }]} />
                       <View style={[styles.cell, styles.colTrash]} />
                     </View>
@@ -742,39 +607,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 4,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  locationRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  locationButton: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  locationButtonText: {
-    fontWeight: '600',
-  },
-  roomRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  roomButton: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
   },
   error: {
     color: '#e53e3e',
@@ -782,13 +620,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     opacity: 0.6,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#8884',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -884,14 +715,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dateInput: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 13,
-  },
-  smallQuickInput: {
-    width: 130,
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 8,
