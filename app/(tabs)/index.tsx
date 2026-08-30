@@ -22,7 +22,7 @@ import { getCurrentCoords, getForegroundPermission, nearestWithin } from '@/lib/
 import { ensureDefaultLocations, type Location } from '@/lib/locations';
 import { listAssignableOwners, listOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
-import { createProject, listProjects, moveProject, type Project } from '@/lib/projects';
+import { listProjectsForLocation, moveProject, type Project } from '@/lib/projects';
 import { formatDueAt, formatRecurrence, nextOccurrence } from '@/lib/recurrence';
 import {
   completeReminder,
@@ -66,8 +66,6 @@ export default function RemindersScreen() {
   const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Record<string, boolean>>({});
-  const [isAddingProject, setIsAddingProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
   const [projectPopupFor, setProjectPopupFor] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,11 +104,6 @@ export default function RemindersScreen() {
     listAssignableOwners().then(({ data, error }) => {
       if (!error) {
         setAssignableOwners(data ?? []);
-      }
-    });
-    listProjects().then(({ data, error }) => {
-      if (!error) {
-        setProjects(data ?? []);
       }
     });
   }, []);
@@ -169,6 +162,11 @@ export default function RemindersScreen() {
         setRooms(data ?? []);
       }
     });
+    listProjectsForLocation(activeLocationId).then(({ data, error }) => {
+      if (!error) {
+        setProjects(data ?? []);
+      }
+    });
   }, [activeLocationId]);
 
   useEffect(() => {
@@ -210,7 +208,7 @@ export default function RemindersScreen() {
       return;
     }
     setIsAdding(true);
-    const { data, error } = await createReminder(title, activeLocationId, activeRoomId);
+    const { data, error } = await createReminder(title, [activeLocationId], activeRoomId);
     if (error) {
       setErrorMessage(error.message);
       setIsAdding(false);
@@ -388,27 +386,12 @@ export default function RemindersScreen() {
     }
   }
 
-  async function handleAddProject() {
-    const name = newProjectName.trim();
-    if (!name) {
-      return;
-    }
-    const { data, error } = await createProject(name);
-    if (error) {
-      setErrorMessage(error.message);
-    } else if (data) {
-      setProjects((current) => [...current, data]);
-      setNewProjectName('');
-      setIsAddingProject(false);
-    }
-  }
-
   async function handleMoveProject(id: string, direction: 'up' | 'down') {
     const result = await moveProject(projects, id, direction);
-    if (!result) {
+    if (!result || !activeLocationId) {
       return;
     }
-    const { data, error } = await listProjects();
+    const { data, error } = await listProjectsForLocation(activeLocationId);
     if (error) {
       setErrorMessage(error.message);
     } else {
@@ -520,27 +503,6 @@ export default function RemindersScreen() {
           )}
         </View>
       )}
-      <View style={styles.projectAddRow}>
-        {isAddingProject ? (
-          <TextInput
-            style={[styles.smallQuickInput, { color: Colors[colorScheme].text, borderColor: tintColor }]}
-            value={newProjectName}
-            onChangeText={setNewProjectName}
-            placeholder="Project name"
-            placeholderTextColor="#888"
-            onSubmitEditing={handleAddProject}
-            onBlur={() => {
-              if (!newProjectName.trim()) setIsAddingProject(false);
-            }}
-            returnKeyType="done"
-            autoFocus
-          />
-        ) : (
-          <Pressable style={[styles.roomButton, { borderColor: tintColor }]} onPress={() => setIsAddingProject(true)}>
-            <Text style={{ color: tintColor }}>+ Project</Text>
-          </Pressable>
-        )}
-      </View>
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       {isLoading ? (
         <View style={styles.centered}>
@@ -767,9 +729,6 @@ export default function RemindersScreen() {
 }
 
 const styles = StyleSheet.create({
-  projectAddRow: {
-    marginBottom: 12,
-  },
   projectMoveButtons: {
     gap: 2,
   },

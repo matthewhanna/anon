@@ -62,6 +62,7 @@ function RootLayoutNav() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="reminder/[id]" options={{ presentation: 'modal', title: 'Edit Reminder' }} />
           <Stack.Screen name="location/[id]" options={{ title: 'Edit Location' }} />
+          <Stack.Screen name="project/[id]" options={{ title: 'Edit Project' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

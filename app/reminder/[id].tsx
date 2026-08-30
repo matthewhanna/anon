@@ -2,16 +2,20 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import LocationMultiSelect from '@/components/LocationMultiSelect';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { listLocations, type Location } from '@/lib/locations';
 import { listAssignableOwners, type Owner } from '@/lib/owners';
 import { parseScheduleInput } from '@/lib/parse-schedule';
 import { formatDueAt, WEEKDAY_NAMES, type RecurrenceFreq } from '@/lib/recurrence';
 import {
   deleteReminder,
   getReminder,
+  getReminderLocationIds,
   setReminderAssignee,
+  setReminderLocations,
   skipReminderOccurrence,
   snoozeReminder,
   updateReminderSchedule,
@@ -41,8 +45,12 @@ export default function ReminderEditScreen() {
   const [scheduleText, setScheduleText] = useState('');
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assignableOwners, setAssignableOwners] = useState<Owner[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationIds, setLocationIds] = useState<string[]>([]);
 
   useEffect(() => {
+    listLocations().then(({ data }) => setLocations(data ?? []));
+    getReminderLocationIds(id).then(({ data }) => setLocationIds(data ?? []));
     getReminder(id).then(({ data, error }) => {
       if (error || !data) {
         setErrorMessage(error?.message ?? 'Reminder not found');
@@ -91,10 +99,18 @@ export default function ReminderEditScreen() {
       recurrence_freq: dueAt ? freq : null,
       recurrence_weekday: dueAt && freq === 'weekly' ? weekday : null,
     });
-    setIsSaving(false);
     if (error) {
+      setIsSaving(false);
       setErrorMessage(error.message);
-    } else if (data) {
+      return;
+    }
+    const { error: locError } = await setReminderLocations(id, locationIds);
+    setIsSaving(false);
+    if (locError) {
+      setErrorMessage(locError.message);
+      return;
+    }
+    if (data) {
       router.back();
     }
   }
@@ -172,6 +188,9 @@ export default function ReminderEditScreen() {
           </View>
         </>
       )}
+
+      <Text style={styles.sectionLabel}>Locations</Text>
+      <LocationMultiSelect locations={locations} selectedIds={locationIds} onChange={setLocationIds} />
 
       <Text style={styles.sectionLabel}>Quick schedule</Text>
       <TextInput

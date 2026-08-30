@@ -1,3 +1,5 @@
+import type { PostgrestError } from '@supabase/supabase-js';
+
 import { nextOccurrence, type RecurrenceFreq } from '@/lib/recurrence';
 import { supabase } from '@/lib/supabase';
 
@@ -8,7 +10,6 @@ export type Reminder = {
   notes: string | null;
   due_at: string | null;
   completed_at: string | null;
-  location_id: string | null;
   room_id: string | null;
   project_id: string | null;
   assignee_id: string;
@@ -18,32 +19,75 @@ export type Reminder = {
   updated_at: string;
 };
 
-// roomId: null means no room filter (every reminder in the location, tagged or not).
-// Fetches every matching reminder regardless of project — the main screen
-// groups them into project sections client-side rather than filtering by
-// project at query time.
-export async function listReminders(locationId: string | null, roomId: string | null) {
-  let query = supabase.from('reminders').select('*').eq('location_id', locationId);
-  if (roomId) {
-    query = query.eq('room_id', roomId);
-  }
-  return query
+// A reminder belongs to zero or more locations (reminder_locations). Lists the
+// reminders tied to one location; roomId null means no room filter. Grouping
+// into project sections happens client-side.
+export async function listReminders(
+  locationId: string,
+  roomId: string | null
+): Promise<{ data: Reminder[] | null; error: PostgrestError | null }> {
+  const { data: links, error: linkError } = await supabase
+    .from('reminder_locations')
+    .select('reminder_id')
+    .eq('location_id', locationId);
+  if (linkError) return { data: null, error: linkError };
+  const ids = (links ?? []).map((l) => l.reminder_id as string);
+  if (ids.length === 0) return { data: [], error: null };
+
+  let query = supabase.from('reminders').select('*').in('id', ids);
+  if (roomId) query = query.eq('room_id', roomId);
+  const { data, error } = await query
     .order('completed_at', { ascending: true, nullsFirst: true })
     .order('due_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
     .returns<Reminder[]>();
+  return { data, error };
 }
 
 export async function getReminder(id: string) {
   return supabase.from('reminders').select('*').eq('id', id).single<Reminder>();
 }
 
-export async function createReminder(title: string, locationId: string | null, roomId: string | null) {
-  return supabase
+export async function getReminderLocationIds(reminderId: string) {
+  const { data, error } = await supabase
+    .from('reminder_locations')
+    .select('location_id')
+    .eq('reminder_id', reminderId);
+  return { data: data ? data.map((r) => r.location_id as string) : null, error };
+}
+
+// Replaces the reminder's location set (delete-then-insert; not atomic).
+export async function setReminderLocations(reminderId: string, locationIds: string[]) {
+  const { error: delError } = await supabase
+    .from('reminder_locations')
+    .delete()
+    .eq('reminder_id', reminderId);
+  if (delError) return { error: delError };
+  if (locationIds.length === 0) return { error: null };
+  const { error } = await supabase
+    .from('reminder_locations')
+    .insert(locationIds.map((location_id) => ({ reminder_id: reminderId, location_id })));
+  return { error };
+}
+
+export async function createReminder(
+  title: string,
+  locationIds: string[],
+  roomId: string | null
+): Promise<{ data: Reminder | null; error: PostgrestError | null }> {
+  const { data, error } = await supabase
     .from('reminders')
-    .insert({ title, location_id: locationId, room_id: roomId })
+    .insert({ title, room_id: roomId })
     .select()
     .single<Reminder>();
+  if (error || !data) return { data, error };
+  if (locationIds.length > 0) {
+    const { error: linkError } = await supabase
+      .from('reminder_locations')
+      .insert(locationIds.map((location_id) => ({ reminder_id: data.id, location_id })));
+    if (linkError) return { data, error: linkError };
+  }
+  return { data, error: null };
 }
 
 // Completing a recurring reminder never sets completed_at — it just rolls

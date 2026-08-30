@@ -118,7 +118,6 @@ CREATE TABLE IF NOT EXISTS "public"."reminders" (
     "completed_at" timestamp with time zone,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "location_id" "uuid",
     "recurrence_freq" "text",
     "recurrence_weekday" smallint,
     "room_id" "uuid",
@@ -244,6 +243,16 @@ CREATE TABLE IF NOT EXISTS "public"."owners" (
 ALTER TABLE "public"."owners" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."project_locations" (
+    "project_id" "uuid" NOT NULL,
+    "location_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."project_locations" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."projects" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "owner_id" "uuid" DEFAULT "auth"."uid"() NOT NULL,
@@ -256,6 +265,16 @@ CREATE TABLE IF NOT EXISTS "public"."projects" (
 
 
 ALTER TABLE "public"."projects" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."reminder_locations" (
+    "reminder_id" "uuid" NOT NULL,
+    "location_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."reminder_locations" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."rooms" (
@@ -297,6 +316,11 @@ ALTER TABLE ONLY "public"."owners"
 
 
 
+ALTER TABLE ONLY "public"."project_locations"
+    ADD CONSTRAINT "project_locations_pkey" PRIMARY KEY ("project_id", "location_id");
+
+
+
 ALTER TABLE ONLY "public"."projects"
     ADD CONSTRAINT "projects_owner_id_name_key" UNIQUE ("owner_id", "name");
 
@@ -304,6 +328,11 @@ ALTER TABLE ONLY "public"."projects"
 
 ALTER TABLE ONLY "public"."projects"
     ADD CONSTRAINT "projects_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."reminder_locations"
+    ADD CONSTRAINT "reminder_locations_pkey" PRIMARY KEY ("reminder_id", "location_id");
 
 
 
@@ -321,6 +350,10 @@ CREATE INDEX "locations_owner_id_idx" ON "public"."locations" USING "btree" ("ow
 
 
 
+CREATE INDEX "project_locations_location_id_idx" ON "public"."project_locations" USING "btree" ("location_id");
+
+
+
 CREATE INDEX "projects_owner_id_idx" ON "public"."projects" USING "btree" ("owner_id");
 
 
@@ -329,15 +362,15 @@ CREATE INDEX "projects_priority_idx" ON "public"."projects" USING "btree" ("prio
 
 
 
+CREATE INDEX "reminder_locations_location_id_idx" ON "public"."reminder_locations" USING "btree" ("location_id");
+
+
+
 CREATE INDEX "reminders_assignee_id_idx" ON "public"."reminders" USING "btree" ("assignee_id");
 
 
 
 CREATE INDEX "reminders_due_at_idx" ON "public"."reminders" USING "btree" ("due_at") WHERE ("completed_at" IS NULL);
-
-
-
-CREATE INDEX "reminders_location_id_idx" ON "public"."reminders" USING "btree" ("location_id");
 
 
 
@@ -411,18 +444,33 @@ ALTER TABLE ONLY "public"."owners"
 
 
 
+ALTER TABLE ONLY "public"."project_locations"
+    ADD CONSTRAINT "project_locations_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "public"."locations"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."project_locations"
+    ADD CONSTRAINT "project_locations_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."projects"
     ADD CONSTRAINT "projects_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
+ALTER TABLE ONLY "public"."reminder_locations"
+    ADD CONSTRAINT "reminder_locations_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "public"."locations"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."reminder_locations"
+    ADD CONSTRAINT "reminder_locations_reminder_id_fkey" FOREIGN KEY ("reminder_id") REFERENCES "public"."reminders"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."reminders"
     ADD CONSTRAINT "reminders_assignee_id_fkey" FOREIGN KEY ("assignee_id") REFERENCES "public"."owners"("id");
-
-
-
-ALTER TABLE ONLY "public"."reminders"
-    ADD CONSTRAINT "reminders_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "public"."locations"("id") ON DELETE SET NULL;
 
 
 
@@ -556,7 +604,53 @@ ALTER TABLE "public"."owner_visibility" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."owners" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."project_locations" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "project_locations: delete own" ON "public"."project_locations" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."projects" "p"
+  WHERE (("p"."id" = "project_locations"."project_id") AND ("p"."owner_id" = "auth"."uid"())))));
+
+
+
+CREATE POLICY "project_locations: insert own + own location" ON "public"."project_locations" FOR INSERT WITH CHECK (((EXISTS ( SELECT 1
+   FROM "public"."projects" "p"
+  WHERE (("p"."id" = "project_locations"."project_id") AND ("p"."owner_id" = "auth"."uid"())))) AND (EXISTS ( SELECT 1
+   FROM "public"."locations" "l"
+  WHERE (("l"."id" = "project_locations"."location_id") AND ("l"."owner_id" = "auth"."uid"()))))));
+
+
+
+CREATE POLICY "project_locations: select own" ON "public"."project_locations" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."projects" "p"
+  WHERE (("p"."id" = "project_locations"."project_id") AND ("p"."owner_id" = "auth"."uid"())))));
+
+
+
 ALTER TABLE "public"."projects" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."reminder_locations" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "reminder_locations: delete visible" ON "public"."reminder_locations" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."reminders" "r"
+  WHERE (("r"."id" = "reminder_locations"."reminder_id") AND "public"."owner_is_visible"("r"."owner_id")))));
+
+
+
+CREATE POLICY "reminder_locations: insert visible + own location" ON "public"."reminder_locations" FOR INSERT WITH CHECK (((EXISTS ( SELECT 1
+   FROM "public"."reminders" "r"
+  WHERE (("r"."id" = "reminder_locations"."reminder_id") AND "public"."owner_is_visible"("r"."owner_id")))) AND (EXISTS ( SELECT 1
+   FROM "public"."locations" "l"
+  WHERE (("l"."id" = "reminder_locations"."location_id") AND ("l"."owner_id" = "auth"."uid"()))))));
+
+
+
+CREATE POLICY "reminder_locations: select visible" ON "public"."reminder_locations" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."reminders" "r"
+  WHERE (("r"."id" = "reminder_locations"."reminder_id") AND "public"."owner_is_visible"("r"."owner_id")))));
+
 
 
 ALTER TABLE "public"."reminders" ENABLE ROW LEVEL SECURITY;
@@ -606,9 +700,21 @@ GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."owners" TO "servic
 
 
 
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."project_locations" TO "anon";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."project_locations" TO "authenticated";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."project_locations" TO "service_role";
+
+
+
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."projects" TO "anon";
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."projects" TO "authenticated";
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."projects" TO "service_role";
+
+
+
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."reminder_locations" TO "anon";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."reminder_locations" TO "authenticated";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."reminder_locations" TO "service_role";
 
 
 

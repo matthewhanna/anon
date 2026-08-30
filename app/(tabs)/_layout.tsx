@@ -19,11 +19,24 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Reminders',
+          title: 'Tasks',
           headerTitle: 'Anon',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'checklist', android: 'checklist', web: 'checklist' }}
+              tintColor={color}
+              size={28}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="projects"
+        options={{
+          title: 'Projects',
+          tabBarIcon: ({ color }) => (
+            <SymbolView
+              name={{ ios: 'folder', android: 'folder', web: 'folder' }}
               tintColor={color}
               size={28}
             />
