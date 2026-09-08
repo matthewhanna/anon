@@ -394,6 +394,11 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Home Assistant presence bridge: authenticated by a shared secret header, not a
+# Supabase JWT. See supabase/functions/set-presence/ and docs/ha-presence-bridge.yaml.
+[functions.set-presence]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

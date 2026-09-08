@@ -1,7 +1,7 @@
 import { useLocales } from 'expo-localization';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
@@ -10,8 +10,16 @@ import { useAuth } from '@/lib/auth-context';
 import { DEFAULT_RADIUS_M } from '@/lib/location';
 import { useLocationContext } from '@/lib/location-context';
 import { deleteLocation, listLocations, type Location } from '@/lib/locations';
+import { isFreshPresence } from '@/lib/presence';
 import { createRoom, deleteRoom, listRooms, renameRoom, type Room } from '@/lib/rooms';
 import { formatRadius, unitSystemFrom } from '@/lib/units';
+
+function relTime(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
 
 export default function SettingsScreen() {
   const { session, signOut } = useAuth();
@@ -20,7 +28,7 @@ export default function SettingsScreen() {
   const accent = Colors[scheme].accent;
   const system = unitSystemFrom(useLocales()[0]?.measurementSystem);
 
-  const { reloadLocations } = useLocationContext();
+  const { reloadLocations, followLocation, setFollowLocation, lastPresence } = useLocationContext();
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +129,10 @@ export default function SettingsScreen() {
   const borderColor = scheme === 'dark' ? '#2a2a2a' : '#e2e2e2';
   const mutedColor = scheme === 'dark' ? '#9aa0a6' : '#6b7280';
 
+  const presenceHint = lastPresence
+    ? `Room sensor: ${relTime(lastPresence.updated_at)}${isFreshPresence(lastPresence) ? '' : ' (stale)'}`
+    : null;
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Locations</Text>
@@ -204,6 +216,23 @@ export default function SettingsScreen() {
       </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <Text style={[styles.sectionTitle, { marginTop: 36 }]}>Presence</Text>
+      <Text style={[styles.sectionHint, { color: mutedColor }]}>
+        Auto-switch the active location and room to match where you are — from your phone's location,
+        and from Home Assistant room sensors if set up.
+      </Text>
+      <View style={[styles.card, { borderColor }]}>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Follow my location</Text>
+            {presenceHint ? (
+              <Text style={[styles.rowSub, { color: mutedColor }]}>{presenceHint}</Text>
+            ) : null}
+          </View>
+          <Switch value={followLocation} onValueChange={setFollowLocation} />
+        </View>
+      </View>
 
       <Text style={[styles.sectionTitle, { marginTop: 36 }]}>Account</Text>
       <Text style={[styles.sectionHint, { color: mutedColor }]}>Signed in as {session?.user.email}</Text>

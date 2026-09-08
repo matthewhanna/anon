@@ -1,3 +1,6 @@
+
+
+
 -- Consolidated schema snapshot — the source of truth for this project's
 -- database structure.
 --
@@ -16,6 +19,11 @@
 --     supabase db dump --local --schema public -f supabase/schema.sql
 -- then re-add this header. Verified to apply cleanly (psql -v ON_ERROR_STOP=1)
 -- against a fresh database with the auth baseline present.
+--
+-- NOTE: `presence` realtime publication membership is cluster-level and is not
+-- captured by `db dump --schema public` — re-assert it (add `presence` under
+-- Database -> Replication, or `alter publication supabase_realtime add table
+-- presence`) when rebuilding from this file.
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -185,6 +193,61 @@ $$;
 ALTER FUNCTION "public"."reassign_reminder_owner"("target_reminder_id" "uuid", "new_owner_id" "uuid") OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."presence" (
+    "owner_id" "uuid" DEFAULT "auth"."uid"() NOT NULL,
+    "location_id" "uuid",
+    "room_id" "uuid",
+    "source" "text" NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "presence_source_check" CHECK (("source" = ANY (ARRAY['ble'::"text", 'gps'::"text", 'manual'::"text"])))
+);
+
+
+ALTER TABLE "public"."presence" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."set_presence"("p_room_id" "uuid", "p_source" "text" DEFAULT 'ble'::"text", "p_owner_id" "uuid" DEFAULT NULL::"uuid") RETURNS "public"."presence"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_owner uuid := coalesce(auth.uid(), p_owner_id);
+  v_location uuid;
+  v_row public.presence;
+begin
+  if v_owner is null then
+    raise exception 'set_presence: no owner (pass p_owner_id when unauthenticated)';
+  end if;
+  if p_source not in ('ble', 'gps', 'manual') then
+    raise exception 'set_presence: bad source %', p_source;
+  end if;
+
+  if p_room_id is not null then
+    select location_id into v_location
+    from public.rooms
+    where id = p_room_id and owner_id = v_owner;
+    if v_location is null then
+      raise exception 'set_presence: room % not found for owner', p_room_id;
+    end if;
+  end if;
+
+  insert into public.presence as p (owner_id, location_id, room_id, source, updated_at)
+  values (v_owner, v_location, p_room_id, p_source, now())
+  on conflict (owner_id) do update
+    set location_id = excluded.location_id,
+        room_id     = excluded.room_id,
+        source      = excluded.source,
+        updated_at  = now()
+  returning p.* into v_row;
+
+  return v_row;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."set_presence"("p_room_id" "uuid", "p_source" "text", "p_owner_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."set_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -316,6 +379,11 @@ ALTER TABLE ONLY "public"."owners"
 
 
 
+ALTER TABLE ONLY "public"."presence"
+    ADD CONSTRAINT "presence_pkey" PRIMARY KEY ("owner_id");
+
+
+
 ALTER TABLE ONLY "public"."project_locations"
     ADD CONSTRAINT "project_locations_pkey" PRIMARY KEY ("project_id", "location_id");
 
@@ -398,6 +466,10 @@ CREATE OR REPLACE TRIGGER "owners_set_updated_at" BEFORE UPDATE ON "public"."own
 
 
 
+CREATE OR REPLACE TRIGGER "presence_set_updated_at" BEFORE UPDATE ON "public"."presence" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
+
+
+
 CREATE OR REPLACE TRIGGER "projects_set_updated_at" BEFORE UPDATE ON "public"."projects" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
 
 
@@ -441,6 +513,21 @@ ALTER TABLE ONLY "public"."owners"
 
 ALTER TABLE ONLY "public"."owners"
     ADD CONSTRAINT "owners_creator_id_fkey" FOREIGN KEY ("creator_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."presence"
+    ADD CONSTRAINT "presence_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "public"."locations"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."presence"
+    ADD CONSTRAINT "presence_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."presence"
+    ADD CONSTRAINT "presence_room_id_fkey" FOREIGN KEY ("room_id") REFERENCES "public"."rooms"("id") ON DELETE SET NULL;
 
 
 
@@ -604,6 +691,13 @@ ALTER TABLE "public"."owner_visibility" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."owners" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."presence" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "presence: select own" ON "public"."presence" FOR SELECT USING (("auth"."uid"() = "owner_id"));
+
+
+
 ALTER TABLE "public"."project_locations" ENABLE ROW LEVEL SECURITY;
 
 
@@ -682,6 +776,18 @@ GRANT ALL ON FUNCTION "public"."reassign_reminder_owner"("target_reminder_id" "u
 
 
 
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."presence" TO "anon";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."presence" TO "authenticated";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."presence" TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."set_presence"("p_room_id" "uuid", "p_source" "text", "p_owner_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."set_presence"("p_room_id" "uuid", "p_source" "text", "p_owner_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."set_presence"("p_room_id" "uuid", "p_source" "text", "p_owner_id" "uuid") TO "service_role";
+
+
+
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."locations" TO "anon";
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."locations" TO "authenticated";
 GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."locations" TO "service_role";
@@ -745,3 +851,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLES TO "service_role";
+
+
+
+
+
+
+
