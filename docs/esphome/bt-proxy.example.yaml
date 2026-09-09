@@ -1,0 +1,46 @@
+# ESPHome Bluetooth-proxy node for Home Assistant room presence.
+#
+# One per tracked room. Feeds HA's `bluetooth` integration; Bermuda then does
+# the RSSI -> area math. See docs/presence-plan.md and docs/ha-presence-bridge.yaml.
+#
+# Reference copy. The live per-room files are on the mediaserver at
+# ~/projects/XiaoSeeedStudio/  (bt-proxy-<room>.yaml + a gitignored secrets.yaml).
+# Hardware in use: Seeed Studio XIAO ESP32-C3 (BLE only) -- ATTACH THE u.FL
+# ANTENNA, the C3 is nearly deaf without it. Enumerates as /dev/ttyACM0; flash
+# over USB-C the first time, OTA after.
+#
+#   cp secrets.example.yaml secrets.yaml   # fill in Wi-Fi
+#   esphome run bt-proxy-<room>.yaml       # then adopt in HA: Settings > Devices
+#   # In HA: assign the proxy device to its Area so Bermuda can use it.
+
+substitutions:
+  name: bt-proxy-ROOM
+  friendly_name: "BT Proxy ROOM"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: seeed_xiao_esp32c3    # fallback if PlatformIO rejects it: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf              # better BLE stack than arduino for proxy use
+
+logger:
+api:                            # HA generates + stores the encryption key on adoption
+ota:
+  - platform: esphome
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none         # XIAO C3: required for stable Wi-Fi + BLE coexistence
+
+bluetooth_proxy:
+  active: true                  # passive RSSI is all Bermuda needs; active also
+                                # lets HA proxy GATT connections (C3 ~2-3)
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 1100ms              # window == interval => continuous listening
+    active: true
