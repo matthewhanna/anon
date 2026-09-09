@@ -219,9 +219,22 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     })();
   }, [followLocation]);
 
+  // On foreground: the Realtime socket was dropped while suspended and won't
+  // replay missed changes, so re-fetch presence and apply it before falling
+  // back to the GPS sync (fresh BLE presence outranks GPS).
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void syncToPosition();
+      if (state !== 'active') return;
+      void (async () => {
+        if (getFollowLocation()) {
+          const p = await fetchPresence();
+          if (p && p.location_id && p.source !== 'manual' && isFreshPresence(p)) {
+            applyPresenceRef.current(p);
+            return;
+          }
+        }
+        void syncToPosition();
+      })();
     });
     return () => sub.remove();
   }, [syncToPosition]);
