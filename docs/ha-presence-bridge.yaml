@@ -1,80 +1,80 @@
-# Home Assistant -> Supabase presence bridge
+# Home Assistant -> Supabase presence bridge  (as deployed)
 #
-# Copy the relevant blocks into your HA config (/opt/homeassistant/config/).
-# `rest_command:` and `automation:` can live in configuration.yaml, or in
-# rest_commands.yaml / automations.yaml if you split your config.
+# The LIVE copy of this lives on the mediaserver at
+# /opt/homeassistant/config/  (configuration.yaml + automations.yaml +
+# secrets.yaml) and is NOT in this repo or the restic backup. This file mirrors
+# it so the wiring is recorded; keep them in sync by hand.
 #
-# Fill in:
-#   - the Edge Function URL (Supabase -> Edge Functions -> set-presence -> URL,
-#     or http://<host>:54321/functions/v1/set-presence for a local stack)
-#   - !secret ha_presence_secret  in secrets.yaml  (must equal the Edge
-#     Function's HA_PRESENCE_SECRET env var)
-#   - the area_map: HA Area *name* (exactly as shown by the sensor) -> the app's
-#     room UUID (from the `rooms` table / the app's room list)
-#   - the tracked sensor entity id (Bermuda: sensor.<device>_area)
+# Pipeline: sensor.matt_s_apple_watch_area (Bermuda) -> this automation ->
+# rest_command -> Edge Function `set-presence` -> set_presence() -> presence row
+# -> app Realtime. See docs/presence-plan.md and supabase/functions/set-presence/.
 
-# --------------------------------------------------------------------------
+# ── configuration.yaml ──────────────────────────────────────────────────────
 
 rest_command:
   set_presence:
-    url: "https://<PROJECT-REF>.supabase.co/functions/v1/set-presence"
+    url: "https://tyseetokvhfgbyavszvc.supabase.co/functions/v1/set-presence"
     method: POST
     headers:
-      x-ha-secret: !secret ha_presence_secret
+      x-ha-secret: !secret ha_presence_secret       # == Edge Fn HA_PRESENCE_SECRET
       content-type: application/json
-    # room_id may be the string "null" -> the template below turns it into a
-    # real JSON null so the Edge Function marks you "away".
-    payload: >-
-      {"room_id": {{ 'null' if room_id in [none, 'null', ''] else '"' ~ room_id ~ '"' }},
-       "source": "ble"}
+    payload: '{"room_id": "{{ room_id }}", "source": "ble"}'
 
-# --------------------------------------------------------------------------
+# ── secrets.yaml ────────────────────────────────────────────────────────────
+#   ha_presence_secret: "<long random hex, same value as `supabase secrets set
+#                         HA_PRESENCE_SECRET=`>"
 
-automation:
-  - alias: "Presence: push room changes to Anon"
-    id: presence_push_room_changes
-    mode: restart
-    trigger:
-      - platform: state
-        entity_id: sensor.matt_watch_area   # <- your Bermuda area sensor
-        for: "00:00:08"                      # debounce flapping across a boundary
-    condition:
-      # ignore transient unknown/unavailable blips
-      - condition: template
-        value_template: "{{ trigger.to_state.state not in ['unavailable', 'unknown', 'none'] }}"
-    action:
-      - variables:
-          area_map:
-            # HA Area name : app room UUID
-            "Living Room": "00000000-0000-0000-0000-000000000000"
-            "Basement": "00000000-0000-0000-0000-000000000000"
-            "Office": "00000000-0000-0000-0000-000000000000"
-          area: "{{ trigger.to_state.state }}"
-      - service: rest_command.set_presence
-        data:
-          # mapped room UUID, or "null" when the area isn't one we map (-> away)
-          room_id: "{{ area_map.get(area, 'null') }}"
+# ── automations.yaml ───────────────────────────────────────────────────────
 
-  # OPTIONAL: local notification when the room changes.
-  - alias: "Presence: notify on room change"
-    id: presence_notify_room_change
-    mode: restart
-    trigger:
-      - platform: state
-        entity_id: sensor.matt_watch_area
-        for: "00:00:08"
-    condition:
-      - condition: template
-        value_template: >-
-          {{ trigger.from_state.state not in ['unknown', 'unavailable']
-             and trigger.to_state.state not in ['unknown', 'unavailable']
-             and trigger.from_state.state != trigger.to_state.state }}
-    action:
-      - service: notify.notify          # or notify.mobile_app_<device>
-        data:
-          title: "Room change"
-          message: "Matt: {{ trigger.from_state.state }} -> {{ trigger.to_state.state }}"
+- alias: "Presence: push Watch room changes to Anon"
+  id: presence_push_watch_room
+  mode: restart
+  variables:
+    # HA Area name (exact sensor state) -> app rooms.id UUID.
+    # Bermuda's *_area sensor reports the area NAME, not the slug.
+    # "Main Bedroom" is dead until a proxy is placed there.
+    area_map:
+      "Living Room": "8e8d059d-8b66-4f65-b998-8275cee29bf7"
+      "Basement": "65e774cc-bdf9-4cc4-a2df-01108155f6a2"
+      "Main Bedroom": "41b36272-49d4-4af2-99a6-0406b7824f16"
+  trigger:
+    - platform: state
+      entity_id: sensor.matt_s_apple_watch_area
+      for: "00:00:08"          # bump to ~20s until Bermuda max_radius is calibrated
+  condition:
+    - condition: template
+      value_template: "{{ trigger.to_state.state in area_map }}"
+  action:
+    - service: rest_command.set_presence
+      data:
+        room_id: "{{ area_map[trigger.to_state.state] }}"
 
-# --------------------------------------------------------------------------
-# secrets.yaml
-#   ha_presence_secret: "<long random string, same as HA_PRESENCE_SECRET>"
+# Reload: Developer Tools -> YAML -> Reload All YAML (rest_command doesn't
+# reload with "Reload Automations"), or restart HA.
+
+# ── NOT YET DEPLOYED ───────────────────────────────────────────────────────
+#
+# Add the iPhone as a second source (Watch stays authoritative when Bermuda
+# can place it): trigger on both *_area sensors and compute `chosen`:
+#   variables:
+#     watch: "{{ states('sensor.matt_s_apple_watch_area') }}"
+#     phone: "{{ states('sensor.matt_s_iphone_area') }}"
+#     chosen: "{{ watch if watch in area_map
+#                 else (phone if phone in area_map else '') }}"
+#   condition: "{{ chosen in area_map }}"
+#   action data: { room_id: "{{ area_map[chosen] }}" }
+#
+# Optional: notify on room change
+# - alias: "Presence: notify on room change"
+#   trigger:
+#     - platform: state
+#       entity_id: sensor.matt_s_apple_watch_area
+#       for: "00:00:08"
+#   condition:
+#     - "{{ trigger.from_state.state not in ['unknown','unavailable']
+#           and trigger.to_state.state not in ['unknown','unavailable']
+#           and trigger.from_state.state != trigger.to_state.state }}"
+#   action:
+#     - service: notify.goforgrumbler          # HA companion app on the iPhone
+#       data:
+#         message: "Matt: {{ trigger.from_state.state }} -> {{ trigger.to_state.state }}"
