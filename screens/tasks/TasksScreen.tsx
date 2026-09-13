@@ -40,6 +40,7 @@ export default function TasksScreen() {
         <SectionList<Reminder, ReminderSection>
           sections={t.sections}
           keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={t.isRefreshing} onRefresh={t.refresh} />}
           ListHeaderComponent={
             <>
