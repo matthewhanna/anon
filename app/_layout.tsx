@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import BiometricLock from '@/components/BiometricLock';
 import { useColorScheme } from '@/components/useColorScheme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
@@ -55,7 +56,7 @@ function RootLayoutNav() {
     return null;
   }
 
-  return (
+  const stack = (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Protected guard={!!session}>
@@ -70,4 +71,7 @@ function RootLayoutNav() {
       </Stack>
     </ThemeProvider>
   );
+
+  // Only gates once a session exists -- nothing to unlock before sign-in.
+  return session ? <BiometricLock>{stack}</BiometricLock> : stack;
 }

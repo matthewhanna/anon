@@ -51,7 +51,13 @@
         }
       ],
       "./plugins/withGradleJavaHome",
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Anon to use Face ID to unlock the app."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

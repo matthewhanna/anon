@@ -1,12 +1,17 @@
 import { useLocales } from 'expo-localization';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/lib/auth-context';
+import {
+  getBiometricLockEnabled,
+  isBiometricAvailable,
+  setBiometricLockEnabled,
+} from '@/lib/biometric-lock';
 import { DEFAULT_RADIUS_M } from '@/lib/location';
 import { useLocationContext } from '@/lib/location-context';
 import { deleteLocation, listLocations, type Location } from '@/lib/locations';
@@ -36,6 +41,12 @@ export default function SettingsScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rooms, setRooms] = useState<Record<string, Room[]>>({});
   const [newRoom, setNewRoom] = useState('');
+
+  const [bioEnabled, setBioEnabled] = useState(getBiometricLockEnabled);
+  const [bioAvailable, setBioAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    isBiometricAvailable().then(setBioAvailable);
+  }, []);
 
   const load = useCallback(() => {
     listLocations().then(({ data, error: listError }) => {
@@ -231,6 +242,30 @@ export default function SettingsScreen() {
             ) : null}
           </View>
           <Switch value={followLocation} onValueChange={setFollowLocation} />
+        </View>
+      </View>
+
+      <Text style={[styles.sectionTitle, { marginTop: 36 }]}>Security</Text>
+      <Text style={[styles.sectionHint, { color: mutedColor }]}>
+        Require Face ID / Touch ID to open the app. This doesn't change how you sign in — it locks
+        the app in front of your existing session.
+      </Text>
+      <View style={[styles.card, { borderColor }]}>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Require Face ID</Text>
+            {bioAvailable === false ? (
+              <Text style={[styles.rowSub, { color: mutedColor }]}>Not set up on this device</Text>
+            ) : null}
+          </View>
+          <Switch
+            value={bioEnabled && bioAvailable !== false}
+            onValueChange={(value) => {
+              setBioEnabled(value);
+              setBiometricLockEnabled(value);
+            }}
+            disabled={bioAvailable === false}
+          />
         </View>
       </View>
 

@@ -61,6 +61,8 @@ export default function SignInScreen() {
           placeholder="12345678"
           placeholderTextColor="#888"
           keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          autoComplete="one-time-code"
           autoFocus
           editable={!isSubmitting}
           onSubmitEditing={handleVerifyCode}
