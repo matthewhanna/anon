@@ -90,42 +90,50 @@ export function useTasks() {
     async ({ title, scheduleText, assigneeId }: AddReminderInput) => {
       if (!activeLocationId) return { scheduleError: null };
       setIsAdding(true);
-      const { data, error } = await createReminder(title, [activeLocationId], activeRoomId);
-      if (error || !data) {
-        if (error) setErrorMessage(error.message);
-        setIsAdding(false);
-        return { scheduleError: null };
-      }
-
-      let created = data;
-      if (assigneeId && assigneeId !== created.assignee_id) {
-        const { data: reassigned, error: assignError } = await setReminderAssignee(
-          created.id,
-          assigneeId
-        );
-        if (assignError) setErrorMessage(assignError.message);
-        else if (reassigned) created = reassigned;
-      }
-
-      let scheduleError: string | null = null;
-      if (scheduleText) {
-        const parsed = parseScheduleInput(scheduleText);
-        if (!parsed) {
-          scheduleError = SCHEDULE_HELP;
-        } else {
-          const { data: scheduled, error: schedErr } = await updateReminderSchedule(created.id, {
-            due_at: parsed.dueAt.toISOString(),
-            recurrence_freq: parsed.recurrenceFreq,
-            recurrence_weekday: parsed.recurrenceWeekday,
-          });
-          if (schedErr) setErrorMessage(schedErr.message);
-          else if (scheduled) created = scheduled;
+      // Everything below is wrapped so isAdding always resets: a thrown
+      // network/runtime error (not just a returned {error}) used to leave it
+      // stuck true forever, permanently disabling the add button.
+      try {
+        const { data, error } = await createReminder(title, [activeLocationId], activeRoomId);
+        if (error || !data) {
+          if (error) setErrorMessage(error.message);
+          return { scheduleError: null };
         }
-      }
 
-      setReminders((current) => [created, ...current]);
-      setIsAdding(false);
-      return { scheduleError };
+        let created = data;
+        if (assigneeId && assigneeId !== created.assignee_id) {
+          const { data: reassigned, error: assignError } = await setReminderAssignee(
+            created.id,
+            assigneeId
+          );
+          if (assignError) setErrorMessage(assignError.message);
+          else if (reassigned) created = reassigned;
+        }
+
+        let scheduleError: string | null = null;
+        if (scheduleText) {
+          const parsed = parseScheduleInput(scheduleText);
+          if (!parsed) {
+            scheduleError = SCHEDULE_HELP;
+          } else {
+            const { data: scheduled, error: schedErr } = await updateReminderSchedule(created.id, {
+              due_at: parsed.dueAt.toISOString(),
+              recurrence_freq: parsed.recurrenceFreq,
+              recurrence_weekday: parsed.recurrenceWeekday,
+            });
+            if (schedErr) setErrorMessage(schedErr.message);
+            else if (scheduled) created = scheduled;
+          }
+        }
+
+        setReminders((current) => [created, ...current]);
+        return { scheduleError };
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to add reminder.');
+        return { scheduleError: null };
+      } finally {
+        setIsAdding(false);
+      }
     },
     [activeLocationId, activeRoomId]
   );
