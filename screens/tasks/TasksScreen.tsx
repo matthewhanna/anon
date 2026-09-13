@@ -37,59 +37,60 @@ export default function TasksScreen() {
           <ActivityIndicator />
         </View>
       ) : (
-        <SectionList<Reminder, ReminderSection>
-          sections={t.sections}
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={t.isRefreshing} onRefresh={t.refresh} />}
-          ListHeaderComponent={
-            <>
-              <AddReminderRow
-                assignableOwners={t.assignableOwners}
-                myOwnerId={t.myOwnerId}
+        <>
+          {/* Rendered as a plain sibling, NOT as SectionList's ListHeaderComponent:
+              a TextInput inside a virtualized list header loses onChangeText
+              delivery entirely on iOS (New Architecture) -- typed characters show
+              in the native view but never reach JS. Reproduced and confirmed via
+              Metro logging; unaffected on web (RN Web's TextInput isn't Fabric). */}
+          <AddReminderRow
+            assignableOwners={t.assignableOwners}
+            myOwnerId={t.myOwnerId}
+            columns={columns}
+            disabled={t.isAdding}
+            onAdd={t.add}
+          />
+          {t.reminders.length === 0 ? <Text style={styles.emptyText}>No reminders yet.</Text> : null}
+          <SectionList<Reminder, ReminderSection>
+            sections={t.sections}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={<RefreshControl refreshing={t.isRefreshing} onRefresh={t.refresh} />}
+            renderSectionHeader={({ section }) => {
+              if (section.id === NO_PROJECT_SECTION_ID) return null;
+              const projectIndex = t.projects.findIndex((p) => p.id === section.id);
+              const project = projectIndex === -1 ? null : t.projects[projectIndex];
+              return (
+                <ProjectSectionHeader
+                  section={section}
+                  project={project}
+                  projectIndex={projectIndex}
+                  projectCount={t.projects.length}
+                  collapsed={Boolean(t.collapsedProjectIds[section.id])}
+                  onToggle={t.toggleProjectCollapsed}
+                  onMove={t.moveProject}
+                  onDropReminder={t.setReminderProject}
+                />
+              );
+            }}
+            renderItem={({ item }) => (
+              <ReminderRow
+                reminder={item}
+                owners={t.owners}
+                projectName={t.projects.find((p) => p.id === item.project_id)?.name}
                 columns={columns}
-                disabled={t.isAdding}
-                onAdd={t.add}
+                onToggle={t.toggle}
+                onCommitTitle={t.commitTitle}
+                onSchedule={t.schedule}
+                onSetOwner={t.setOwner}
+                onOpenDelegate={openDelegate}
+                onOpenProject={openProject}
+                onDelete={t.remove}
+                onOpenDetail={openDetail}
               />
-              {t.reminders.length === 0 ? (
-                <Text style={styles.emptyText}>No reminders yet.</Text>
-              ) : null}
-            </>
-          }
-          renderSectionHeader={({ section }) => {
-            if (section.id === NO_PROJECT_SECTION_ID) return null;
-            const projectIndex = t.projects.findIndex((p) => p.id === section.id);
-            const project = projectIndex === -1 ? null : t.projects[projectIndex];
-            return (
-              <ProjectSectionHeader
-                section={section}
-                project={project}
-                projectIndex={projectIndex}
-                projectCount={t.projects.length}
-                collapsed={Boolean(t.collapsedProjectIds[section.id])}
-                onToggle={t.toggleProjectCollapsed}
-                onMove={t.moveProject}
-                onDropReminder={t.setReminderProject}
-              />
-            );
-          }}
-          renderItem={({ item }) => (
-            <ReminderRow
-              reminder={item}
-              owners={t.owners}
-              projectName={t.projects.find((p) => p.id === item.project_id)?.name}
-              columns={columns}
-              onToggle={t.toggle}
-              onCommitTitle={t.commitTitle}
-              onSchedule={t.schedule}
-              onSetOwner={t.setOwner}
-              onOpenDelegate={openDelegate}
-              onOpenProject={openProject}
-              onDelete={t.remove}
-              onOpenDetail={openDetail}
-            />
-          )}
-        />
+            )}
+          />
+        </>
       )}
 
       <OptionsModal
