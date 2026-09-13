@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import AssigneeSelect from '@/components/AssigneeSelect';
 import { Text } from '@/components/Themed';
@@ -37,6 +37,7 @@ export default function AddReminderRow({
   const [scheduleText, setScheduleText] = useState('');
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  const canSubmit = title.trim().length > 0 && !disabled;
 
   async function submit() {
     const trimmed = title.trim();
@@ -91,7 +92,16 @@ export default function AddReminderRow({
             ) : null}
           </View>
           <View style={[rowStyles.cell, rowStyles.colDelegate, { width: columns.delegate }]} />
-          <View style={[rowStyles.cell, rowStyles.colTrash]} />
+          <View style={[rowStyles.cell, rowStyles.colTrash]}>
+            {/* The keyboard return key submits too, but iOS doesn't reliably fire
+                onSubmitEditing for a TextInput in a list header, so give it a
+                real button rather than depending on that alone. */}
+            <Pressable onPress={submit} disabled={!canSubmit} hitSlop={8}>
+              <Text style={[styles.addIcon, !canSubmit && styles.addIconDisabled, { color: tint }]}>
+                ➕
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
@@ -100,4 +110,6 @@ export default function AddReminderRow({
 
 const styles = StyleSheet.create({
   titleInput: { fontSize: 16, flexShrink: 1 },
+  addIcon: { fontSize: 18 },
+  addIconDisabled: { opacity: 0.3 },
 });
